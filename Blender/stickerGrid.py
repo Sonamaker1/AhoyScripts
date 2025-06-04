@@ -1,10 +1,10 @@
 bl_info = {
-    "name": "Grid Sorter Panel",
+    "name": "Grid Sorter XZ",
     "author": "Your Name",
-    "version": (1, 0),
+    "version": (1, 1),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Grid Sorter",
-    "description": "Arrange selected objects alphabetically in a grid layout",
+    "description": "Arrange selected objects alphabetically in a grid (X and Z axis)",
     "category": "Object",
 }
 
@@ -12,14 +12,16 @@ import bpy
 from bpy.props import IntProperty
 
 class GRIDSORTER_OT_arrange_grid(bpy.types.Operator):
-    bl_idname = "object.arrange_objects_grid"
-    bl_label = "Arrange in Grid"
-    bl_description = "Arrange selected objects alphabetically in a grid"
+    bl_idname = "object.arrange_objects_grid_xz"
+    bl_label = "Arrange in Grid (X/Z)"
+    bl_description = "Arrange selected objects alphabetically in a grid using X and Z axes"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         props = context.scene.grid_sorter_props
         per_row = props.per_row
+        spacing = props.spacing
+
         if per_row < 1:
             self.report({'WARNING'}, "Objects per row must be at least 1")
             return {'CANCELLED'}
@@ -32,17 +34,16 @@ class GRIDSORTER_OT_arrange_grid(bpy.types.Operator):
         # Sort alphabetically
         selected.sort(key=lambda o: o.name.lower())
 
-        spacing = props.spacing
         for i, obj in enumerate(selected):
             row = i // per_row
             col = i % per_row
             obj.location.x = col * spacing
-            obj.location.y = -row * spacing  # Downward in Y
-        self.report({'INFO'}, f"Arranged {len(selected)} objects")
+            obj.location.z = -row * spacing  # Negative Z to move "downward"
+        self.report({'INFO'}, f"Arranged {len(selected)} objects in grid (X/Z)")
         return {'FINISHED'}
 
 class GRIDSORTER_PT_panel(bpy.types.Panel):
-    bl_label = "Grid Sorter"
+    bl_label = "Grid Sorter (X/Z)"
     bl_idname = "GRIDSORTER_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -54,7 +55,7 @@ class GRIDSORTER_PT_panel(bpy.types.Panel):
 
         layout.prop(props, "per_row")
         layout.prop(props, "spacing")
-        layout.operator("object.arrange_objects_grid")
+        layout.operator("object.arrange_objects_grid_xz")
 
 class GRIDSORTER_Properties(bpy.types.PropertyGroup):
     per_row: IntProperty(
