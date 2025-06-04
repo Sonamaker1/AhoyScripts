@@ -1,22 +1,24 @@
 bl_info = {
-    "name": "Grid Sorter and Axis Aligner",
+    "name": "Grid Sorter + Axis Aligner (Auto Sync)",
     "author": "Your Name",
-    "version": (1, 2),
+    "version": (1, 3),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Grid Sorter",
-    "description": "Arrange selected objects in a grid and align to axis values",
+    "description": "Arrange objects and align axes, auto-syncs axis inputs to selection",
     "category": "Object",
 }
 
 import bpy
-from bpy.props import IntProperty, FloatProperty
+from bpy.props import IntProperty, FloatProperty, PointerProperty
+from bpy.app.handlers import persistent
+
+last_selected_object = None  # Tracks last selected object for comparison
 
 # -------- GRID ARRANGER --------
 
 class GRIDSORTER_OT_arrange_grid(bpy.types.Operator):
     bl_idname = "object.arrange_objects_grid_xz"
     bl_label = "Arrange in Grid (X/Z)"
-    bl_description = "Arrange selected objects alphabetically in a grid using X and Z axes"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -24,13 +26,9 @@ class GRIDSORTER_OT_arrange_grid(bpy.types.Operator):
         per_row = props.per_row
         spacing = props.spacing
 
-        if per_row < 1:
-            self.report({'WARNING'}, "Objects per row must be at least 1")
-            return {'CANCELLED'}
-
         selected = [obj for obj in context.selected_objects if obj.type == 'MESH']
-        if not selected:
-            self.report({'WARNING'}, "No mesh objects selected")
+        if per_row < 1 or not selected:
+            self.report({'WARNING'}, "Check selected objects and grid settings")
             return {'CANCELLED'}
 
         selected.sort(key=lambda o: o.name.lower())
@@ -41,7 +39,6 @@ class GRIDSORTER_OT_arrange_grid(bpy.types.Operator):
             obj.location.x = col * spacing
             obj.location.z = -row * spacing
 
-        self.report({'INFO'}, f"Arranged {len(selected)} objects in X/Z grid")
         return {'FINISHED'}
 
 # -------- AXIS ALIGNERS --------
@@ -61,17 +58,12 @@ class ALIGN_OT_axis(bpy.types.Operator):
 
     def execute(self, context):
         props = context.scene.grid_sorter_props
-        value = {
-            'X': props.align_x,
-            'Y': props.align_y,
-            'Z': props.align_z
-        }[self.axis]
+        value = getattr(props, f'align_{self.axis.lower()}')
 
         for obj in context.selected_objects:
             if obj.type == 'MESH':
                 setattr(obj.location, self.axis.lower(), value)
 
-        self.report({'INFO'}, f"Aligned to {self.axis} = {value}")
         return {'FINISHED'}
 
 # -------- PANEL UI --------
@@ -94,9 +86,8 @@ class GRIDSORTER_PT_panel(bpy.types.Panel):
         layout.operator("object.arrange_objects_grid_xz", icon='GRID')
 
         layout.separator()
-
-        # Axis align section
         layout.label(text="Align to Axis:")
+
         row = layout.row()
         row.prop(props, "align_x")
         row.operator("object.align_objects_axis", text="Align X").axis = 'X'
@@ -131,6 +122,19 @@ class GRIDSORTER_Properties(bpy.types.PropertyGroup):
 
 # -------- REGISTER --------
 
+@persistent
+def update_axis_properties(scene):
+    global last_selected_object
+    obj = scene.objects.active if hasattr(scene.objects, 'active') else scene.view_layers[0].objects.active
+    if obj and obj != last_selected_object:
+        if obj.select_get() and obj.type == 'MESH':
+            props = scene.grid_sorter_props
+            props.align_x = obj.location.x
+            props.align_y = obj.location.y
+            props.align_z = obj.location.z
+            last_selected_object = obj
+
+
 classes = (
     GRIDSORTER_OT_arrange_grid,
     ALIGN_OT_axis,
@@ -141,12 +145,15 @@ classes = (
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.grid_sorter_props = bpy.props.PointerProperty(type=GRIDSORTER_Properties)
+    bpy.types.Scene.grid_sorter_props = PointerProperty(type=GRIDSORTER_Properties)
+    bpy.app.handlers.depsgraph_update_post.append(update_axis_properties)
 
 def unregister():
+    bpy.app.handlers.depsgraph_update_post.remove(update_axis_properties)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     del bpy.types.Scene.grid_sorter_props
+
 
 if __name__ == "__main__":
     register()
