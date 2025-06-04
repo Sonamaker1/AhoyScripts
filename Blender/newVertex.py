@@ -1,15 +1,19 @@
 bl_info = {
     "name": "Edit Mode Vertex Tool",
     "author": "Your Name",
-    "version": (1, 0),
+    "version": (1, 1),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Edit Vertex",
-    "description": "Add an unconnected vertex at the 3D cursor in Edit Mode",
+    "description": "Add/edit vertices in Edit Mode: create at cursor, copy/paste",
     "category": "Mesh",
 }
 
 import bpy
 import bmesh
+from bpy.props import CollectionProperty, FloatVectorProperty
+
+# Global buffer for copied vertex positions
+copied_vertex_positions = []
 
 class EDITVERTEX_OT_add_vertex_cursor(bpy.types.Operator):
     bl_idname = "mesh.add_vertex_at_cursor"
@@ -23,7 +27,6 @@ class EDITVERTEX_OT_add_vertex_cursor(bpy.types.Operator):
             return {'CANCELLED'}
 
         bm = bmesh.from_edit_mesh(obj.data)
-
         # Get cursor location in local space
         cursor_world = context.scene.cursor.location
         cursor_local = obj.matrix_world.inverted() @ cursor_world
@@ -44,8 +47,61 @@ class EDITVERTEX_OT_add_vertex_cursor(bpy.types.Operator):
 
         # Change to Move tool
         context.workspace.tools.from_space_view3d_mode('EDIT', create=True).idname = 'builtin.move'
+        self.report({'INFO'}, "Vertex added at 3D Cursor")
+        return {'FINISHED'}
 
-        self.report({'INFO'}, "Vertex added at 3D Cursor and Move tool enabled")
+class EDITVERTEX_OT_copy_vertices(bpy.types.Operator):
+    bl_idname = "mesh.copy_selected_vertices"
+    bl_label = "Copy Selected Vertices"
+    bl_description = "Copy positions of selected vertices"
+
+    def execute(self, context):
+        global copied_vertex_positions
+        copied_vertex_positions.clear()
+
+        obj = context.edit_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+
+        for v in bm.verts:
+            if v.select:
+                copied_vertex_positions.append(v.co.copy())
+
+        self.report({'INFO'}, f"Copied {len(copied_vertex_positions)} vertices")
+        return {'FINISHED'}
+
+class EDITVERTEX_OT_paste_vertices(bpy.types.Operator):
+    bl_idname = "mesh.paste_copied_vertices"
+    bl_label = "Paste Copied Vertices"
+    bl_description = "Paste copied vertices as new ones"
+
+    def execute(self, context):
+        global copied_vertex_positions
+        if not copied_vertex_positions:
+            self.report({'WARNING'}, "No vertices copied")
+            return {'CANCELLED'}
+
+        obj = context.edit_object
+        bm = bmesh.from_edit_mesh(obj.data)
+
+        # Deselect all first
+        for v in bm.verts:
+            v.select = False
+
+        new_verts = []
+        for pos in copied_vertex_positions:
+            v = bm.verts.new(pos)
+            v.select = True
+            new_verts.append(v)
+
+        bm.verts.index_update()
+        bm.select_history.clear()
+        for v in new_verts:
+            bm.select_history.add(v)
+
+        bmesh.update_edit_mesh(obj.data)
+        context.workspace.tools.from_space_view3d_mode('EDIT', create=True).idname = 'builtin.move'
+        self.report({'INFO'}, f"Pasted {len(new_verts)} vertices")
         return {'FINISHED'}
 
 class EDITVERTEX_PT_panel(bpy.types.Panel):
@@ -61,12 +117,20 @@ class EDITVERTEX_PT_panel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+
         layout.label(text="Add Vertex:")
-        layout.operator("mesh.add_vertex_at_cursor")
+        layout.operator("mesh.add_vertex_at_cursor", icon='CURSOR')
+
+        layout.separator()
+        layout.label(text="Copy/Paste Vertices:")
+        layout.operator("mesh.copy_selected_vertices", icon='COPYDOWN')
+        layout.operator("mesh.paste_copied_vertices", icon='PASTEDOWN')
 
 # Register
 classes = (
     EDITVERTEX_OT_add_vertex_cursor,
+    EDITVERTEX_OT_copy_vertices,
+    EDITVERTEX_OT_paste_vertices,
     EDITVERTEX_PT_panel,
 )
 
