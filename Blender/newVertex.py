@@ -1,16 +1,17 @@
 bl_info = {
     "name": "Edit Mode Vertex Tool",
     "author": "Your Name",
-    "version": (1, 1),
+    "version": (1, 2),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Edit Vertex",
-    "description": "Add/edit vertices in Edit Mode: create at cursor, copy/paste",
+    "description": "Tools for adding and transforming vertices in Edit Mode",
     "category": "Mesh",
 }
 
 import bpy
 import bmesh
 from bpy.props import CollectionProperty, FloatVectorProperty
+from bpy.props import FloatProperty
 
 # Global buffer for copied vertex positions
 copied_vertex_positions = []
@@ -46,7 +47,7 @@ class EDITVERTEX_OT_add_vertex_cursor(bpy.types.Operator):
         bmesh.update_edit_mesh(obj.data)
 
         # Change to Move tool
-        context.workspace.tools.from_space_view3d_mode('EDIT', create=True).idname = 'builtin.move'
+        context.workspace.tools.from_space_view3d_mode(bpy.context.mode, create=True).idname = 'builtin.move'
         self.report({'INFO'}, "Vertex added at 3D Cursor")
         return {'FINISHED'}
 
@@ -100,8 +101,44 @@ class EDITVERTEX_OT_paste_vertices(bpy.types.Operator):
             bm.select_history.add(v)
 
         bmesh.update_edit_mesh(obj.data)
-        context.workspace.tools.from_space_view3d_mode('EDIT', create=True).idname = 'builtin.move'
+        context.workspace.tools.from_space_view3d_mode(bpy.context.mode, create=True).idname = 'builtin.move'
         self.report({'INFO'}, f"Pasted {len(new_verts)} vertices")
+        return {'FINISHED'}
+
+class EDITVERTEX_OT_move_selected_axis(bpy.types.Operator):
+    bl_idname = "mesh.move_selected_on_axis"
+    bl_label = "Move Selected on Axis"
+
+    axis: bpy.props.EnumProperty(
+        items=[
+            ('X', "X Axis", ""),
+            ('Y', "Y Axis", ""),
+            ('Z', "Z Axis", ""),
+        ],
+        name="Axis"
+    )
+
+    def execute(self, context):
+        obj = context.edit_object
+        if not obj or obj.type != 'MESH':
+            self.report({'ERROR'}, "Edit Mode required on a mesh")
+            return {'CANCELLED'}
+
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+
+        amount = context.scene.edit_vertex_move_amount
+
+        for v in bm.verts:
+            if v.select:
+                if self.axis == 'X':
+                    v.co.x += amount
+                elif self.axis == 'Y':
+                    v.co.y += amount
+                elif self.axis == 'Z':
+                    v.co.z += amount
+
+        bmesh.update_edit_mesh(obj.data)
         return {'FINISHED'}
 
 class EDITVERTEX_PT_panel(bpy.types.Panel):
@@ -117,7 +154,6 @@ class EDITVERTEX_PT_panel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-
         layout.label(text="Add Vertex:")
         layout.operator("mesh.add_vertex_at_cursor", icon='CURSOR')
 
@@ -126,21 +162,37 @@ class EDITVERTEX_PT_panel(bpy.types.Panel):
         layout.operator("mesh.copy_selected_vertices", icon='COPYDOWN')
         layout.operator("mesh.paste_copied_vertices", icon='PASTEDOWN')
 
+        layout.separator()
+        layout.label(text="Move Selected Vertices:")
+        layout.prop(context.scene, "edit_vertex_move_amount")
+        row = layout.row(align=True)
+        row.operator("mesh.move_selected_on_axis", text="X").axis = 'X'
+        row.operator("mesh.move_selected_on_axis", text="Y").axis = 'Y'
+        row.operator("mesh.move_selected_on_axis", text="Z").axis = 'Z'
+
 # Register
 classes = (
     EDITVERTEX_OT_add_vertex_cursor,
     EDITVERTEX_OT_copy_vertices,
     EDITVERTEX_OT_paste_vertices,
+    EDITVERTEX_OT_move_selected_axis,
     EDITVERTEX_PT_panel,
 )
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    bpy.types.Scene.edit_vertex_move_amount = FloatProperty(
+        name="Move Amount",
+        description="Distance to move selected vertices",
+        default=0.1,
+        precision=3
+    )
 
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+    del bpy.types.Scene.edit_vertex_move_amount
 
 if __name__ == "__main__":
     register()
