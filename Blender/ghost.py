@@ -81,25 +81,30 @@ def remove_transparency(obj):
 
 class OBJECT_OT_ghost(bpy.types.Operator):
     bl_idname = "object.make_ghost"
-    bl_label = "Ghost Selected Object(s)"
-    bl_description = "Makes selected objects visible but unselectable"
+    bl_label = "Ghost Selected or Active Object(s)"
+    bl_description = "Makes selected or active objects unselectable and visible"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        for obj in context.selected_objects:
-            ghost_object(obj)
+        objs = context.selected_objects if context.selected_objects else [context.active_object]
+        for obj in objs:
+            if obj is not None and obj.type == 'MESH':
+                ghost_object(obj)
         return {'FINISHED'}
 
 class OBJECT_OT_unghost(bpy.types.Operator):
     bl_idname = "object.undo_ghost"
-    bl_label = "Un-Ghost Selected Object(s)"
-    bl_description = "Restores selectability and normal display"
+    bl_label = "Un-Ghost Selected or Active Object(s)"
+    bl_description = "Restores visibility and selectability to selected or active objects"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        for obj in context.selected_objects:
-            unghost_object(obj)
+        objs = context.selected_objects if context.selected_objects else [context.active_object]
+        for obj in objs:
+            if obj is not None and obj.type == 'MESH':
+                unghost_object(obj)
         return {'FINISHED'}
+
 
 class OBJECT_OT_apply_transparency(bpy.types.Operator):
     bl_idname = "object.apply_transparency"
@@ -109,7 +114,8 @@ class OBJECT_OT_apply_transparency(bpy.types.Operator):
 
     def execute(self, context):
         alpha = context.scene.ghost_tool_props.transparency
-        for obj in context.selected_objects:
+        objs = context.selected_objects if context.selected_objects else [context.active_object]
+        for obj in objs:
             if obj.type == 'MESH':
                 set_object_transparency(obj, alpha)
         return {'FINISHED'}
@@ -121,7 +127,8 @@ class OBJECT_OT_remove_transparency(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        for obj in context.selected_objects:
+        objs = context.selected_objects if context.selected_objects else [context.active_object]
+        for obj in objs:
             if obj.type == 'MESH':
                 remove_transparency(obj)
         return {'FINISHED'}
