@@ -1,6 +1,9 @@
 ﻿#Requires AutoHotkey v2.0
 
-; Track internal state
+; Initial remapping state
+remapEnabled := true
+
+; Track internal key state
 keys := Map("w", false, "a", false, "s", false, "d", false, "Space", false)
 keyMap := Map(
     "w", "Up",
@@ -10,11 +13,14 @@ keyMap := Map(
     "Space", "z"
 )
 
-; Set up a timer that runs every 10 ms
+; Start timer loop
 SetTimer(CheckKeys, 10)
 
 CheckKeys() {
-    global keys, keyMap
+    global remapEnabled, keys, keyMap
+    if !remapEnabled
+        return
+
     for keyName, isDown in keys {
         physDown := GetKeyState(keyName, "P")
         if (physDown && !isDown) {
@@ -23,6 +29,23 @@ CheckKeys() {
         } else if (!physDown && isDown) {
             keys[keyName] := false
             Send("{" keyMap[keyName] " up}")
+        }
+    }
+}
+
+; Toggle remapping with F1
+F1:: {
+    global remapEnabled
+    remapEnabled := !remapEnabled
+    TrayTip("WASD Remap", remapEnabled ? "Remapping enabled" : "Remapping disabled", 1)
+
+    ; If disabling, release all currently "down" remapped keys
+    if !remapEnabled {
+        for keyName, isDown in keys {
+            if isDown {
+                keys[keyName] := false
+                Send("{" keyMap[keyName] " up}")
+            }
         }
     }
 }
