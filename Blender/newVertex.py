@@ -141,6 +141,49 @@ class EDITVERTEX_OT_move_selected_axis(bpy.types.Operator):
         bmesh.update_edit_mesh(obj.data)
         return {'FINISHED'}
 
+class EDITVERTEX_OT_connect_vertex_cursor(bpy.types.Operator):
+    bl_idname = "mesh.connect_vertex_at_cursor"
+    bl_label = "Connect Vertex at 3D Cursor"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.edit_object
+        if not obj or obj.type != 'MESH':
+            self.report({'ERROR'}, "You must be in Edit Mode on a mesh object")
+            return {'CANCELLED'}
+
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+
+        selected_verts = [v for v in bm.verts if v.select]
+        if len(selected_verts) != 1:
+            self.report({'WARNING'}, "Please select exactly one vertex to connect from")
+            return {'CANCELLED'}
+
+        from_vert = selected_verts[0]
+
+        # Convert 3D cursor to local space
+        cursor_world = context.scene.cursor.location
+        cursor_local = obj.matrix_world.inverted() @ cursor_world
+
+        # Create new vertex and edge
+        new_vert = bm.verts.new(cursor_local)
+        bm.edges.new([from_vert, new_vert])
+
+        # Update selection
+        for v in bm.verts:
+            v.select = False
+        new_vert.select = True
+        bm.select_history.clear()
+        bm.select_history.add(new_vert)
+
+        bmesh.update_edit_mesh(obj.data)
+        context.workspace.tools.from_space_view3d_mode(bpy.context.mode, create=True).idname = 'builtin.move'
+
+        self.report({'INFO'}, "Vertex created and connected")
+        return {'FINISHED'}
+
+
 class EDITVERTEX_PT_panel(bpy.types.Panel):
     bl_label = "Edit Vertex Tools"
     bl_idname = "EDITVERTEX_PT_panel"
@@ -156,6 +199,7 @@ class EDITVERTEX_PT_panel(bpy.types.Panel):
         layout = self.layout
         layout.label(text="Add Vertex:")
         layout.operator("mesh.add_vertex_at_cursor", icon='CURSOR')
+        layout.operator("mesh.connect_vertex_at_cursor", icon='VERTEXSEL')
 
         layout.separator()
         layout.label(text="Copy/Paste Vertices:")
@@ -173,6 +217,7 @@ class EDITVERTEX_PT_panel(bpy.types.Panel):
 # Register
 classes = (
     EDITVERTEX_OT_add_vertex_cursor,
+    EDITVERTEX_OT_connect_vertex_cursor,
     EDITVERTEX_OT_copy_vertices,
     EDITVERTEX_OT_paste_vertices,
     EDITVERTEX_OT_move_selected_axis,
