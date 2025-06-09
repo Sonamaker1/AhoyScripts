@@ -2,6 +2,7 @@
 
 ; Initial remapping state
 remapEnabled := true
+targetHWND := 0  ; Will store the window handle (HWND)
 
 ; Track internal key state
 keys := Map("w", false, "a", false, "s", false, "d", false, "Space", false, "m", false, "n", false, ",", false)
@@ -20,8 +21,14 @@ keyMap := Map(
 SetTimer(CheckKeys, 10)
 
 CheckKeys() {
-    global remapEnabled, keys, keyMap
+    global remapEnabled, keys, keyMap, targetHWND
+
     if !remapEnabled
+        return
+
+    ; Only run if target window is active
+    activeHWND := WinGetID("A")
+    if (targetHWND != 0 && activeHWND != targetHWND)
         return
 
     for keyName, isDown in keys {
@@ -36,13 +43,13 @@ CheckKeys() {
     }
 }
 
-; Toggle remapping with F1
+; F1 to toggle enable/disable
 F1:: {
-    global remapEnabled
+    global remapEnabled, keys, keyMap
     remapEnabled := !remapEnabled
     TrayTip("WASD Remap", remapEnabled ? "Remapping enabled" : "Remapping disabled", 1)
 
-    ; If disabling, release all currently "down" remapped keys
+    ; Release keys if disabling
     if !remapEnabled {
         for keyName, isDown in keys {
             if isDown {
@@ -51,4 +58,11 @@ F1:: {
             }
         }
     }
+}
+
+; Ctrl+Space to set current window as remap target
+^Space:: {
+    global targetHWND
+    targetHWND := WinGetID("A")
+    TrayTip("WASD Remap", "Remap locked to window ID: " targetHWND, 1)
 }
