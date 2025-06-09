@@ -26,8 +26,12 @@ CheckKeys() {
     if !remapEnabled
         return
 
-    ; Only run if target window is active
-    activeHWND := WinGetID("A")
+    try {
+        activeHWND := WinGetID("A")
+    } catch {
+        return  ; No active window — skip this check cycle
+    }
+
     if (targetHWND != 0 && activeHWND != targetHWND)
         return
 
