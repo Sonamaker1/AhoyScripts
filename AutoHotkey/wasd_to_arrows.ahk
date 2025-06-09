@@ -4,13 +4,16 @@
 remapEnabled := true
 
 ; Track internal key state
-keys := Map("w", false, "a", false, "s", false, "d", false, "Space", false)
+keys := Map("w", false, "a", false, "s", false, "d", false, "Space", false, "m", false, "n", false, ",", false)
 keyMap := Map(
     "w", "Up",
     "a", "Left",
     "s", "Down",
     "d", "Right",
-    "Space", "z"
+    "Space", "z",
+    "m", "x",
+    "n", "z",
+    ",", "c"
 )
 
 ; Start timer loop
