@@ -183,6 +183,56 @@ class EDITVERTEX_OT_connect_vertex_cursor(bpy.types.Operator):
         self.report({'INFO'}, "Vertex created and connected")
         return {'FINISHED'}
 
+class EDITVERTEX_OT_align_axis_to_previous(bpy.types.Operator):
+    bl_idname = "mesh.align_active_to_previous_axis"
+    bl_label = "Align Active to Previous (Axis)"
+    bl_description = "Align active vertex to previously selected one along specified axis"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    axis: bpy.props.EnumProperty(
+        name="Axis",
+        items=[('X', "X", ""), ('Y', "Y", ""), ('Z', "Z", "")]
+    )
+
+    def execute(self, context):
+        obj = context.edit_object
+        if not obj or obj.type != 'MESH':
+            self.report({'ERROR'}, "Must be in Edit Mode on a mesh")
+            return {'CANCELLED'}
+
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+
+        selected = [v for v in bm.verts if v.select]
+        if len(selected) < 2:
+            self.report({'WARNING'}, "Select at least two vertices")
+            return {'CANCELLED'}
+
+        # Assume the active one is the last selected
+        active = bm.select_history.active
+        if not active or not isinstance(active, bmesh.types.BMVert):
+            self.report({'WARNING'}, "Couldn't detect active vertex")
+            return {'CANCELLED'}
+
+        # Get second-to-last from select history
+        history = [e for e in bm.select_history if isinstance(e, bmesh.types.BMVert)]
+        if len(history) < 2:
+            self.report({'WARNING'}, "Need two vertices selected in order")
+            return {'CANCELLED'}
+
+        source_vert = history[-2]  # second-to-last
+        target_vert = active       # last (active)
+
+        if self.axis == 'X':
+            target_vert.co.x = source_vert.co.x
+        elif self.axis == 'Y':
+            target_vert.co.y = source_vert.co.y
+        elif self.axis == 'Z':
+            target_vert.co.z = source_vert.co.z
+
+        bmesh.update_edit_mesh(obj.data)
+        return {'FINISHED'}
+
 
 class EDITVERTEX_PT_panel(bpy.types.Panel):
     bl_label = "Edit Vertex Tools"
@@ -213,6 +263,14 @@ class EDITVERTEX_PT_panel(bpy.types.Panel):
         row.operator("mesh.move_selected_on_axis", text="X").axis = 'X'
         row.operator("mesh.move_selected_on_axis", text="Y").axis = 'Y'
         row.operator("mesh.move_selected_on_axis", text="Z").axis = 'Z'
+        
+        layout.separator()
+        layout.label(text="Align Active Vertex to Previous:")
+        row = layout.row(align=True)
+        row.operator("mesh.align_active_to_previous_axis", text="X").axis = 'X'
+        row.operator("mesh.align_active_to_previous_axis", text="Y").axis = 'Y'
+        row.operator("mesh.align_active_to_previous_axis", text="Z").axis = 'Z'
+
 
 # Register
 classes = (
@@ -221,6 +279,7 @@ classes = (
     EDITVERTEX_OT_copy_vertices,
     EDITVERTEX_OT_paste_vertices,
     EDITVERTEX_OT_move_selected_axis,
+    EDITVERTEX_OT_align_axis_to_previous,
     EDITVERTEX_PT_panel,
 )
 
