@@ -34,19 +34,6 @@ class CHARANIM_OT_CreateAction(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class CHARANIM_OT_ClearKeyframes(bpy.types.Operator):
-    bl_idname = "charanim.clear_keyframes"
-    bl_label = "Clear All Keyframes"
-
-    def execute(self, context):
-        obj = context.object
-        if obj and obj.animation_data and obj.animation_data.action:
-            for fcurve in obj.animation_data.action.fcurves:
-                obj.animation_data.action.fcurves.remove(fcurve)
-            self.report({'INFO'}, "All keyframes removed.")
-        return {'FINISHED'}
-
-
 class CHARANIM_OT_ApplyBoneTransform(bpy.types.Operator):
     bl_idname = "charanim.apply_bone_transform"
     bl_label = "Apply Bone Transform"
@@ -80,14 +67,34 @@ class CHARANIM_OT_ApplyBoneTransform(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class CHARANIM_OT_CopyPose(bpy.types.Operator):
-    bl_idname = "charanim.copy_pose"
-    bl_label = "Copy Pose Keyframe"
+class CHARANIM_OT_RemoveKeyframeCurrent(bpy.types.Operator):
+    bl_idname = "charanim.remove_current_keyframe"
+    bl_label = "Remove Keyframe (Current Frame)"
 
     def execute(self, context):
         obj = context.object
         if obj is None or obj.type != 'ARMATURE' or obj.mode != 'POSE':
-            self.report({'ERROR'}, "Must be in Pose Mode with an Armature selected.")
+            self.report({'ERROR'}, "Must be in Pose Mode with an armature.")
+            return {'CANCELLED'}
+
+        frame = context.scene.frame_current
+        for bone in obj.pose.bones:
+            bone.keyframe_delete(data_path="location", frame=frame)
+            bone.keyframe_delete(data_path="rotation_quaternion", frame=frame)
+            bone.keyframe_delete(data_path="scale", frame=frame)
+
+        self.report({'INFO'}, f"Removed keyframes at frame {frame}.")
+        return {'FINISHED'}
+
+
+class CHARANIM_OT_CopyKeyframeCurrent(bpy.types.Operator):
+    bl_idname = "charanim.copy_current_keyframe"
+    bl_label = "Copy Keyframe (Current Frame)"
+
+    def execute(self, context):
+        obj = context.object
+        if obj is None or obj.type != 'ARMATURE' or obj.mode != 'POSE':
+            self.report({'ERROR'}, "Must be in Pose Mode with an armature.")
             return {'CANCELLED'}
 
         buffer = {}
@@ -98,40 +105,38 @@ class CHARANIM_OT_CopyPose(bpy.types.Operator):
                 "scale": tuple(bone.scale),
             }
 
-        context.scene.charanim_pose_buffer = buffer
-        self.report({'INFO'}, f"Copied pose of {len(buffer)} bones.")
+        context.scene.charanim_copied_keyframe = buffer
+        self.report({'INFO'}, "Copied current keyframe pose.")
         return {'FINISHED'}
 
 
-class CHARANIM_OT_PastePose(bpy.types.Operator):
-    bl_idname = "charanim.paste_pose"
-    bl_label = "Paste Pose Keyframe"
+class CHARANIM_OT_PasteCopiedKeyframe(bpy.types.Operator):
+    bl_idname = "charanim.paste_copied_keyframe"
+    bl_label = "Paste Copied Keyframe"
 
     def execute(self, context):
         obj = context.object
         if obj is None or obj.type != 'ARMATURE' or obj.mode != 'POSE':
-            self.report({'ERROR'}, "Must be in Pose Mode with an Armature selected.")
+            self.report({'ERROR'}, "Must be in Pose Mode with an armature.")
             return {'CANCELLED'}
 
-        buffer = context.scene.charanim_pose_buffer
+        buffer = context.scene.charanim_copied_keyframe
         if not buffer:
-            self.report({'ERROR'}, "No pose copied yet.")
+            self.report({'ERROR'}, "No copied keyframe found.")
             return {'CANCELLED'}
 
-        current_frame = context.scene.frame_current
-
+        frame = context.scene.frame_current
         for bone in obj.pose.bones:
             if bone.name in buffer:
-                pose_data = buffer[bone.name]
-                bone.location = pose_data["location"]
-                bone.rotation_quaternion = pose_data["rotation_quaternion"]
-                bone.scale = pose_data["scale"]
+                pose = buffer[bone.name]
+                bone.location = pose["location"]
+                bone.rotation_quaternion = pose["rotation_quaternion"]
+                bone.scale = pose["scale"]
+                bone.keyframe_insert(data_path="location", frame=frame)
+                bone.keyframe_insert(data_path="rotation_quaternion", frame=frame)
+                bone.keyframe_insert(data_path="scale", frame=frame)
 
-                bone.keyframe_insert(data_path="location", frame=current_frame)
-                bone.keyframe_insert(data_path="rotation_quaternion", frame=current_frame)
-                bone.keyframe_insert(data_path="scale", frame=current_frame)
-
-        self.report({'INFO'}, f"Pasted pose to frame {current_frame}.")
+        self.report({'INFO'}, f"Pasted copied keyframe to frame {frame}.")
         return {'FINISHED'}
 
 
@@ -180,12 +185,12 @@ class CHARANIM_PT_MainPanel(bpy.types.Panel):
         col.separator()
         col.label(text="Step 5: Animate")
         col.operator("screen.animation_play", text="Play")
-        col.operator("charanim.clear_keyframes", text="Remove All Keyframes")
 
         col.separator()
-        col.label(text="Step 5b: Copy & Paste Poses")
-        col.operator("charanim.copy_pose", text="Copy Pose Keyframe")
-        col.operator("charanim.paste_pose", text="Paste Pose Keyframe")
+        col.label(text="Step 5b: Keyframe Controls")
+        col.operator("charanim.copy_current_keyframe", text="Copy Current Keyframe")
+        col.operator("charanim.paste_copied_keyframe", text="Paste Copied Keyframe")
+        col.operator("charanim.remove_current_keyframe", text="Remove Current Keyframe")
 
 
 # --- Registration ---
@@ -193,10 +198,10 @@ class CHARANIM_PT_MainPanel(bpy.types.Panel):
 classes = (
     CHARANIM_OT_SetMode,
     CHARANIM_OT_CreateAction,
-    CHARANIM_OT_ClearKeyframes,
     CHARANIM_OT_ApplyBoneTransform,
-    CHARANIM_OT_CopyPose,
-    CHARANIM_OT_PastePose,
+    CHARANIM_OT_RemoveKeyframeCurrent,
+    CHARANIM_OT_CopyKeyframeCurrent,
+    CHARANIM_OT_PasteCopiedKeyframe,
     CHARANIM_PT_MainPanel,
 )
 
@@ -209,7 +214,7 @@ def register():
     bpy.types.Scene.charanim_offset_y = FloatProperty(name="Y Offset", default=0.0)
     bpy.types.Scene.charanim_offset_z = FloatProperty(name="Z Offset", default=0.0)
     bpy.types.Scene.charanim_mirror = BoolProperty(name="Mirror Second Bone", default=False)
-    bpy.types.Scene.charanim_pose_buffer = {}
+    bpy.types.Scene.charanim_copied_keyframe = {}
 
 
 def unregister():
@@ -220,7 +225,7 @@ def unregister():
     del bpy.types.Scene.charanim_offset_y
     del bpy.types.Scene.charanim_offset_z
     del bpy.types.Scene.charanim_mirror
-    del bpy.types.Scene.charanim_pose_buffer
+    del bpy.types.Scene.charanim_copied_keyframe
 
 
 if __name__ == "__main__":
