@@ -16,8 +16,29 @@ class CHARANIM_OT_SetMode(bpy.types.Operator):
     mode: bpy.props.StringProperty()
 
     def execute(self, context):
-        bpy.ops.object.mode_set(mode=self.mode)
+        obj = context.object
+
+        if not obj:
+            self.report({'ERROR'}, "No object selected.")
+            return {'CANCELLED'}
+
+        # Unhide and select the armature if necessary
+        obj.hide_set(False)
+        obj.hide_viewport = False
+        obj.hide_select = False
+
+        if obj.type == 'ARMATURE':
+            context.view_layer.objects.active = obj
+            obj.select_set(True)
+
+        try:
+            bpy.ops.object.mode_set(mode=self.mode)
+        except RuntimeError as e:
+            self.report({'ERROR'}, f"Could not switch mode: {e}")
+            return {'CANCELLED'}
+
         return {'FINISHED'}
+
 
 
 class CHARANIM_OT_CreateAction(bpy.types.Operator):
