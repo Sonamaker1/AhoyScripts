@@ -7,6 +7,7 @@ bl_info = {
 import bpy
 from bpy.props import FloatProperty, BoolProperty
 
+charanim_copied_keyframe = {}
 
 # --- Operators ---
 
@@ -125,8 +126,8 @@ class CHARANIM_OT_CopyKeyframeCurrent(bpy.types.Operator):
                 "rotation_quaternion": tuple(bone.rotation_quaternion),
                 "scale": tuple(bone.scale),
             }
-
-        context.scene.charanim_copied_keyframe = buffer
+        global charanim_copied_keyframe
+        charanim_copied_keyframe = buffer
         self.report({'INFO'}, "Copied current keyframe pose.")
         return {'FINISHED'}
 
@@ -140,11 +141,12 @@ class CHARANIM_OT_PasteCopiedKeyframe(bpy.types.Operator):
         if obj is None or obj.type != 'ARMATURE' or obj.mode != 'POSE':
             self.report({'ERROR'}, "Must be in Pose Mode with an armature.")
             return {'CANCELLED'}
-
-        buffer = context.scene.charanim_copied_keyframe
-        if not buffer:
+        
+        global charanim_copied_keyframe
+        if not charanim_copied_keyframe:
             self.report({'ERROR'}, "No copied keyframe found.")
             return {'CANCELLED'}
+        buffer = charanim_copied_keyframe
 
         frame = context.scene.frame_current
         for bone in obj.pose.bones:
