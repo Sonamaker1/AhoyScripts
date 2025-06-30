@@ -183,56 +183,48 @@ class EDITVERTEX_OT_connect_vertex_cursor(bpy.types.Operator):
         self.report({'INFO'}, "Vertex created and connected")
         return {'FINISHED'}
 
-class EDITVERTEX_OT_align_axis_to_previous(bpy.types.Operator):
-    bl_idname = "mesh.align_active_to_previous_axis"
-    bl_label = "Align Active to Previous (Axis)"
-    bl_description = "Align active vertex to previously selected one along specified axis"
+class EDITVERTEX_OT_snap_axis_from_first(bpy.types.Operator):
+    bl_idname = "mesh.snap_axis_from_first"
+    bl_label = "Snap Axis to First Selected"
+    bl_description = "Snap all selected vertices' axis to the first selected vertex"
     bl_options = {'REGISTER', 'UNDO'}
 
     axis: bpy.props.EnumProperty(
         name="Axis",
-        items=[('X', "X", ""), ('Y', "Y", ""), ('Z', "Z", "")]
+        items=[
+            ('X', "X Axis", "Align X coordinate"),
+            ('Y', "Y Axis", "Align Y coordinate"),
+            ('Z', "Z Axis", "Align Z coordinate"),
+        ]
     )
 
     def execute(self, context):
         obj = context.edit_object
         if not obj or obj.type != 'MESH':
-            self.report({'ERROR'}, "Must be in Edit Mode on a mesh")
+            self.report({'ERROR'}, "Must be in Edit Mode on a mesh object")
             return {'CANCELLED'}
 
         bm = bmesh.from_edit_mesh(obj.data)
         bm.verts.ensure_lookup_table()
 
-        selected = [v for v in bm.verts if v.select]
-        if len(selected) < 2:
-            self.report({'WARNING'}, "Select at least two vertices")
+        # Get selection history (oldest to newest)
+        history = [v for v in bm.select_history if isinstance(v, bmesh.types.BMVert)]
+        if not history:
+            self.report({'WARNING'}, "No vertex selection history found")
             return {'CANCELLED'}
 
-        # Assume the active one is the last selected
-        active = bm.select_history.active
-        if not active or not isinstance(active, bmesh.types.BMVert):
-            self.report({'WARNING'}, "Couldn't detect active vertex")
-            return {'CANCELLED'}
+        source_vert = history[0]
+        source_value = getattr(source_vert.co, self.axis.lower())
 
-        # Get second-to-last from select history
-        history = [e for e in bm.select_history if isinstance(e, bmesh.types.BMVert)]
-        if len(history) < 2:
-            self.report({'WARNING'}, "Need two vertices selected in order")
-            return {'CANCELLED'}
-
-        source_vert = history[-2]  # second-to-last
-        target_vert = active       # last (active)
-
-        if self.axis == 'X':
-            target_vert.co.x = source_vert.co.x
-        elif self.axis == 'Y':
-            target_vert.co.y = source_vert.co.y
-        elif self.axis == 'Z':
-            target_vert.co.z = source_vert.co.z
+        count = 0
+        for v in bm.verts:
+            if v.select and v != source_vert:
+                setattr(v.co, self.axis.lower(), source_value)
+                count += 1
 
         bmesh.update_edit_mesh(obj.data)
+        self.report({'INFO'}, f"Snapped {count} vertices to {self.axis} = {source_value:.3f}")
         return {'FINISHED'}
-
 
 class EDITVERTEX_PT_panel(bpy.types.Panel):
     bl_label = "Edit Vertex Tools"
@@ -265,11 +257,11 @@ class EDITVERTEX_PT_panel(bpy.types.Panel):
         row.operator("mesh.move_selected_on_axis", text="Z").axis = 'Z'
         
         layout.separator()
-        layout.label(text="Align Active Vertex to Previous:")
+        layout.label(text="Snap to First Selected (Axis):")
         row = layout.row(align=True)
-        row.operator("mesh.align_active_to_previous_axis", text="X").axis = 'X'
-        row.operator("mesh.align_active_to_previous_axis", text="Y").axis = 'Y'
-        row.operator("mesh.align_active_to_previous_axis", text="Z").axis = 'Z'
+        row.operator("mesh.snap_axis_from_first", text="X").axis = 'X'
+        row.operator("mesh.snap_axis_from_first", text="Y").axis = 'Y'
+        row.operator("mesh.snap_axis_from_first", text="Z").axis = 'Z'
 
 
 # Register
