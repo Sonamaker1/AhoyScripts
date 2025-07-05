@@ -24,11 +24,22 @@ def create_color_image(color):
     if image_name in bpy.data.images:
         return bpy.data.images[image_name]
 
+    # Convert to exact float representation of 0–255 bytes
+    r_byte = int(round(color[0] * 255))
+    g_byte = int(round(color[1] * 255))
+    b_byte = int(round(color[2] * 255))
+    a_byte = int(round(color[3] * 255))
+
+    r = r_byte / 255.0
+    g = g_byte / 255.0
+    b = b_byte / 255.0
+    a = a_byte / 255.0
+
     image = bpy.data.images.new(image_name, width=1, height=1, alpha=True)
-    r, g, b, a = color
     image.pixels = [r, g, b, a]
     image.pack()
     return image
+
 
 
 def create_material_with_image(color):
