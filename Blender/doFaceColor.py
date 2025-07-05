@@ -3,16 +3,13 @@ bl_info = {
     "blender": (3, 0, 0),
     "category": "Mesh",
     "author": "ChatGPT",
-    "description": "Create 1x1 color texture, unwrap selected faces, and assign the colored material"
+    "description": "Create a 1x1 color texture, unwrap selected faces, and assign color-based material"
 }
 
 import bpy
 import bmesh
 from bpy.types import Panel, Operator, PropertyGroup
 from bpy.props import FloatVectorProperty, PointerProperty
-import gpu
-import gpu.types
-from mathutils import Color
 
 
 def rgba_to_hex(rgba):
@@ -20,55 +17,53 @@ def rgba_to_hex(rgba):
     return f"{r:02x}{g:02x}{b:02x}".lower()
 
 
-def create_color_texture(color):
+def create_color_image(color):
     hex_code = rgba_to_hex(color)
-    tex_name = f"color_{hex_code}"
+    image_name = f"color_{hex_code}"
 
-    # Check if texture already exists
-    if tex_name in bpy.data.images:
-        return bpy.data.images[tex_name]
+    if image_name in bpy.data.images:
+        return bpy.data.images[image_name]
 
-    img = bpy.data.images.new(tex_name, width=1, height=1)
+    image = bpy.data.images.new(image_name, width=1, height=1, alpha=True)
     r, g, b, a = color
-    img.pixels = [r, g, b, a] * 1  # 1 pixel
-    img.pack()
-    return img
+    image.pixels = [r, g, b, a]
+    image.pack()
+    return image
 
 
-def get_or_create_material_with_texture(color):
+def create_material_with_image(color):
     hex_code = rgba_to_hex(color)
-    mat_name = f"color_{hex_code}"
-    tex_name = mat_name
+    material_name = f"color_{hex_code}"
 
     # Check for existing material
-    if mat_name in bpy.data.materials:
-        return bpy.data.materials[mat_name]
+    if material_name in bpy.data.materials:
+        return bpy.data.materials[material_name]
 
-    # Create texture
-    image = create_color_texture(color)
+    # Create image texture
+    image = create_color_image(color)
 
     # Create material
-    mat = bpy.data.materials.new(name=mat_name)
+    mat = bpy.data.materials.new(name=material_name)
     mat.use_nodes = True
-
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
+
     nodes.clear()
 
-    output = nodes.new(type='ShaderNodeOutputMaterial')
-    output.location = (400, 0)
+    output_node = nodes.new(type="ShaderNodeOutputMaterial")
+    output_node.location = (300, 0)
 
-    bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
-    bsdf.location = (200, 0)
+    bsdf = nodes.new(type="ShaderNodeBsdfPrincipled")
+    bsdf.location = (100, 0)
 
-    tex_node = nodes.new(type='ShaderNodeTexImage')
+    tex_node = nodes.new(type="ShaderNodeTexImage")
     tex_node.image = image
-    tex_node.label = tex_name
-    tex_node.name = tex_name
-    tex_node.location = (0, 0)
+    tex_node.label = image.name
+    tex_node.name = image.name
+    tex_node.location = (-100, 0)
 
-    links.new(tex_node.outputs['Color'], bsdf.inputs['Base Color'])
-    links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+    links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+    links.new(bsdf.outputs["BSDF"], output_node.inputs["Surface"])
 
     return mat
 
@@ -87,7 +82,7 @@ class Paint3DColorProperties(PropertyGroup):
 class MESH_OT_fill_color_faces(Operator):
     bl_idname = "mesh.fill_color_faces"
     bl_label = "Fill Selected Faces with Color"
-    bl_description = "Create texture from color, unwrap and assign to selected faces"
+    bl_description = "Create a color texture, unwrap, and assign it to selected faces"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -105,8 +100,8 @@ class MESH_OT_fill_color_faces(Operator):
         # Unwrap selected faces
         bpy.ops.uv.unwrap(method='ANGLE_BASED', margin=0.001)
 
-        # Get or create the material
-        mat = get_or_create_material_with_texture(color)
+        # Get or create material
+        mat = create_material_with_image(color)
 
         # Add material to object if needed
         if mat.name not in [m.name for m in obj.data.materials]:
@@ -135,7 +130,7 @@ class VIEW3D_PT_paint3d_color_fill(Panel):
         props = context.scene.paint3d_color_props
 
         layout.prop(props, "fill_color")
-        layout.operator("mesh.fill_color_faces", icon='BRUSH_DATA')
+        layout.operator("mesh.fill_color_faces", icon='COLOR')
 
 
 def register():
