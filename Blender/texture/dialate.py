@@ -3,10 +3,9 @@ import numpy as np
 
 def edge_pad_image(input_path, output_path, iterations=8):
     img = Image.open(input_path).convert("RGBA")
-    data = np.array(img)
+    data = np.array(img).astype(np.uint8)
 
     r, g, b, a = data[:, :, 0], data[:, :, 1], data[:, :, 2], data[:, :, 3]
-
     height, width = a.shape
 
     for _ in range(iterations):
@@ -14,9 +13,8 @@ def edge_pad_image(input_path, output_path, iterations=8):
 
         for y in range(1, height - 1):
             for x in range(1, width - 1):
-                if a[y, x] == 0:  # only modify fully transparent pixels
+                if a[y, x] == 0:
                     neighbor_colors = []
-
                     for ny in range(y - 1, y + 2):
                         for nx in range(x - 1, x + 2):
                             if (nx, ny) == (x, y):
@@ -36,9 +34,13 @@ def edge_pad_image(input_path, output_path, iterations=8):
 
         r, g, b, a = new_r, new_g, new_b, new_a
 
-    result = np.stack([r, g, b, a], axis=-1)
-    Image.fromarray(result, mode="RGBA").save(output_path)
-    print(f"Padded image saved to: {output_path}")
+    # 🔧 Force all non-zero RGB pixels to be fully opaque
+    mask_nonblack = (r > 0) | (g > 0) | (b > 0)
+    a[mask_nonblack] = 255
 
-# Example usage
+    result = np.stack([r, g, b, a], axis=-1).astype(np.uint8)
+    Image.fromarray(result, mode="RGBA").save(output_path)
+    print(f"Final padded image saved to: {output_path}")
+
+# Example usage:
 # edge_pad_image("input.png", "output_padded.png", iterations=8)
