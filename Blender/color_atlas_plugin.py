@@ -8,7 +8,8 @@ bl_info = {
 
 import bpy
 import bmesh
-from bpy.props import FloatVectorProperty
+import json
+from bpy.props import FloatVectorProperty, StringProperty, EnumProperty
 from bpy.types import Operator, Panel, PropertyGroup
 from bpy_extras.image_utils import load_image
 
@@ -16,6 +17,13 @@ ATLAS_NAME = "MainColorAtlas"
 ATLAS_SIZE = 512
 BLOCK_SIZE = 8
 INNER_SIZE = 4
+
+
+def encode_color_key(color):
+    return ",".join(str(round(c * 255)) for c in color)
+
+def decode_color_key(key):
+    return tuple(int(k) / 255.0 for k in key.split(","))
 
 
 class ColorAtlasProperties(PropertyGroup):
@@ -26,7 +34,29 @@ class ColorAtlasProperties(PropertyGroup):
         size=3,
         default=(1.0, 0.0, 1.0)
     )
-    color_index_map: dict = {}
+    color_index_map_json: StringProperty(
+        name="Serialized Color Map",
+        default="{}"
+    )
+    
+    selected_color: EnumProperty(
+        name="Atlas Color",
+        items=lambda self, context: self.get_color_enum_items()
+    )
+
+    def get_color_index_map(self):
+        return json.loads(self.color_index_map_json)
+
+    def set_color_index_map(self, color_map):
+        self.color_index_map_json = json.dumps(color_map)
+
+    def get_color_enum_items(self):
+        color_map = self.get_color_index_map()
+        items = []
+        for key, idx in color_map.items():
+            label = f"#{''.join(f'{int(k):02X}' for k in key.split(','))}"
+            items.append((key, label, f"Block {idx}"))
+        return items
 
 
 def get_or_create_atlas():
@@ -39,14 +69,16 @@ def get_or_create_atlas():
     return image
 
 
-def get_or_assign_color_index(color, color_map):
-    key = tuple(round(c * 255) for c in color)
+def get_or_assign_color_index(color, props):
+    color_map = props.get_color_index_map()
+    key = encode_color_key(color)
     if key in color_map:
         return color_map[key]
     index = len(color_map)
     if index >= 64:
         raise RuntimeError("Color atlas full (max 64 colors)")
     color_map[key] = index
+    props.set_color_index_map(color_map)
     return index
 
 
@@ -107,10 +139,7 @@ class UV_OT_fill_color_block(Operator):
             obj.data.materials.append(mat)
             obj.active_material = mat
 
-        # Track assigned color blocks using the props property
-        color_map = ColorAtlasProperties.color_index_map
-
-        color_index = get_or_assign_color_index(color, color_map)
+        color_index = get_or_assign_color_index(color, props)
         write_color_to_atlas(image, color_index, color)
         coords = get_uv_coords(color_index)
 
@@ -124,6 +153,43 @@ class UV_OT_fill_color_block(Operator):
         return {'FINISHED'}
 
 
+class UV_OT_assign_existing_block(Operator):
+    bl_idname = "uv.assign_existing_block"
+    bl_label = "Assign Existing Atlas Color"
+    bl_description = "Assign a color block already in the atlas to selected faces"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.object
+        if not obj or obj.type != 'MESH' or obj.mode != 'EDIT':
+            self.report({'ERROR'}, "Must be in Edit Mode on a mesh")
+            return {'CANCELLED'}
+
+        props = context.scene.color_atlas_props
+        key = props.selected_color
+        color = decode_color_key(key)
+        color_map = props.get_color_index_map()
+        color_index = color_map.get(key)
+        if color_index is None:
+            self.report({'ERROR'}, "Selected color not in atlas")
+            return {'CANCELLED'}
+
+        image = get_or_create_atlas()
+        bm = bmesh.from_edit_mesh(obj.data)
+        uv_layer = bm.loops.layers.uv.verify()
+
+        coords = get_uv_coords(color_index)
+
+        for face in bm.faces:
+            if face.select:
+                for loop, uv in zip(face.loops, coords):
+                    loop[uv_layer].uv = uv
+
+        bmesh.update_edit_mesh(obj.data)
+        self.report({'INFO'}, f"Applied existing atlas color block {color_index}")
+        return {'FINISHED'}
+
+
 class UV_PT_color_block_fill(Panel):
     bl_label = "Color Atlas Filler"
     bl_idname = "UV_PT_color_block_fill"
@@ -133,13 +199,18 @@ class UV_PT_color_block_fill(Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(context.scene.color_atlas_props, "fill_color")
+        props = context.scene.color_atlas_props
+        layout.prop(props, "fill_color")
         layout.operator("uv.fill_color_block")
+        layout.separator()
+        layout.prop(props, "selected_color")
+        layout.operator("uv.assign_existing_block")
 
 
 def register():
     bpy.utils.register_class(ColorAtlasProperties)
     bpy.utils.register_class(UV_OT_fill_color_block)
+    bpy.utils.register_class(UV_OT_assign_existing_block)
     bpy.utils.register_class(UV_PT_color_block_fill)
     bpy.types.Scene.color_atlas_props = bpy.props.PointerProperty(type=ColorAtlasProperties)
 
@@ -147,6 +218,7 @@ def register():
 def unregister():
     bpy.utils.unregister_class(ColorAtlasProperties)
     bpy.utils.unregister_class(UV_OT_fill_color_block)
+    bpy.utils.unregister_class(UV_OT_assign_existing_block)
     bpy.utils.unregister_class(UV_PT_color_block_fill)
     del bpy.types.Scene.color_atlas_props
 
