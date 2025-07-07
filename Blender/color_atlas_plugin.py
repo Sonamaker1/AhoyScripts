@@ -69,6 +69,31 @@ def get_or_create_atlas():
     return image
 
 
+def ensure_material_with_texture(image):
+    mat_name = "AtlasMaterial"
+    mat = bpy.data.materials.get(mat_name)
+    if mat is None:
+        mat = bpy.data.materials.new(mat_name)
+        mat.use_nodes = True
+    
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+
+    tex_node = nodes.get("AtlasTex")
+    if not tex_node:
+        tex_node = nodes.new("ShaderNodeTexImage")
+        tex_node.name = "AtlasTex"
+        tex_node.label = "AtlasTex"
+        tex_node.image = image
+        tex_node.image.colorspace_settings.name = 'Non-Color'
+
+    bsdf_node = nodes.get("Principled BSDF")
+    if bsdf_node:
+        links.new(tex_node.outputs["Color"], bsdf_node.inputs["Base Color"])
+
+    return mat
+
+
 def get_or_assign_color_index(color, props):
     color_map = props.get_color_index_map()
     key = encode_color_key(color)
@@ -94,6 +119,7 @@ def write_color_to_atlas(image, color_index, color):
             pixels[idx:idx + 3] = [r, g, b]
             pixels[idx + 3] = 1.0
     image.pixels = pixels
+    image.update()
 
 
 def get_uv_coords(color_index):
@@ -128,15 +154,10 @@ class UV_OT_fill_color_block(Operator):
         if not obj.data.uv_layers:
             bpy.ops.uv.unwrap(method='ANGLE_BASED')
 
-        if obj.active_material is None:
-            mat = bpy.data.materials.new("AtlasMaterial")
-            mat.use_nodes = True
-            bsdf = mat.node_tree.nodes.get("Principled BSDF")
-            tex = mat.node_tree.nodes.new("ShaderNodeTexImage")
-            tex.image = image
-            tex.image.colorspace_settings.name = 'Non-Color'
-            mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-            obj.data.materials.append(mat)
+        mat = ensure_material_with_texture(image)
+        if obj.active_material != mat:
+            if mat.name not in obj.data.materials:
+                obj.data.materials.append(mat)
             obj.active_material = mat
 
         color_index = get_or_assign_color_index(color, props)
@@ -175,9 +196,14 @@ class UV_OT_assign_existing_block(Operator):
             return {'CANCELLED'}
 
         image = get_or_create_atlas()
+        mat = ensure_material_with_texture(image)
+        if obj.active_material != mat:
+            if mat.name not in obj.data.materials:
+                obj.data.materials.append(mat)
+            obj.active_material = mat
+
         bm = bmesh.from_edit_mesh(obj.data)
         uv_layer = bm.loops.layers.uv.verify()
-
         coords = get_uv_coords(color_index)
 
         for face in bm.faces:
