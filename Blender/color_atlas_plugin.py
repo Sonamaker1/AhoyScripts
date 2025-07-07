@@ -26,6 +26,7 @@ class ColorAtlasProperties(PropertyGroup):
         size=3,
         default=(1.0, 0.0, 1.0)
     )
+    color_index_map: dict = {}
 
 
 def get_or_create_atlas():
@@ -106,10 +107,8 @@ class UV_OT_fill_color_block(Operator):
             obj.data.materials.append(mat)
             obj.active_material = mat
 
-        # Track assigned color blocks
-        if not hasattr(context.scene, "_color_index_map"):
-            context.scene._color_index_map = {}
-        color_map = context.scene._color_index_map
+        # Track assigned color blocks using the props property
+        color_map = ColorAtlasProperties.color_index_map
 
         color_index = get_or_assign_color_index(color, color_map)
         write_color_to_atlas(image, color_index, color)
