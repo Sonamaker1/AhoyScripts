@@ -1,4 +1,3 @@
-# Requires: pip install keyboard, xdotool, wmctrl
 import keyboard
 import subprocess
 import time
@@ -7,16 +6,18 @@ import threading
 remap_enabled = True
 target_window_id = None
 
+# Track internal key state
 keys = {
     "w": False, "a": False, "s": False, "d": False,
     "space": False, "m": False, "n": False, ",": False
 }
 
+# Fixed xdotool key names (case-sensitive!)
 key_map = {
-    "w": "up",
-    "a": "left",
-    "s": "down",
-    "d": "right",
+    "w": "Up",
+    "a": "Left",
+    "s": "Down",
+    "d": "Right",
     "space": "z",
     "m": "x",
     "n": "z",
@@ -25,7 +26,6 @@ key_map = {
 
 def get_active_window_id():
     try:
-        # Use xdotool to get active window ID
         output = subprocess.check_output(["xdotool", "getactivewindow"])
         return output.decode().strip()
     except Exception:
@@ -33,7 +33,7 @@ def get_active_window_id():
 
 def send_key(key, direction):
     try:
-        subprocess.run(["xdotool", "key" + ("down" if direction == "down" else "up"), key])
+        subprocess.run(["xdotool", f"key{direction}", key])
     except Exception as e:
         print(f"Error sending key {key} {direction}: {e}")
 
@@ -64,12 +64,12 @@ def bind_target_window():
     target_window_id = get_active_window_id()
     subprocess.run(["notify-send", "WASD Remap", f"Window bound: {target_window_id}"])
 
-# Background listener thread
+# Start the background key check loop
 threading.Thread(target=check_keys_loop, daemon=True).start()
 
-# Bind toggle and window selection
+# Set hotkeys
 keyboard.add_hotkey('f1', toggle_remap)
 keyboard.add_hotkey('ctrl+space', bind_target_window)
 
-# Keep the script alive
+# Block forever
 keyboard.wait()
