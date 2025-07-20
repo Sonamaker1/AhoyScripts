@@ -13,57 +13,6 @@ from bpy_extras.io_utils import ExportHelper
 import bpy
 import bmesh
 
-class OBJECT_OT_capture_viewport_topdown(bpy.types.Operator):
-    bl_idname = "object.capture_viewport_topdown"
-    bl_label = "Capture Viewport Snapshot (Top Ortho)"
-
-    def execute(self, context):
-        # Deselect all except the target object
-        for obj in context.selected_objects:
-            obj.select_set(False)
-        target_obj = context.active_object
-        target_obj.select_set(True)
-
-        # Switch to top orthographic view
-        for area in context.screen.areas:
-            if area.type == 'VIEW_3D':
-                for region in area.regions:
-                    if region.type == 'WINDOW':
-                        for space in area.spaces:
-                            if space.type == 'VIEW_3D':
-                                override = {
-                                    'area': area,
-                                    'region': region,
-                                    'space': space,
-                                    'scene': context.scene
-                                }
-                                bpy.ops.view3d.view_persportho(override)
-
-
-                        # Set shading to solid flat
-                        area.spaces[0].shading.type = 'SOLID'
-                        area.spaces[0].shading.light = 'FLAT'
-
-                        # Set resolution and screenshot path
-                        path = bpy.path.abspath("//viewport_snapshot.png")
-                        bpy.ops.screen.screenshot(filepath=path, full=True)
-                        self.report({'INFO'}, f"Saved viewport screenshot to {path}")
-                        return {'FINISHED'}
-
-
-                        # Set shading to solid flat
-                        area.spaces[0].shading.type = 'SOLID'
-                        area.spaces[0].shading.light = 'FLAT'
-
-                        # Set resolution and screenshot path
-                        path = bpy.path.abspath("//viewport_snapshot.png")
-                        bpy.ops.screen.screenshot(filepath=path, full=True)
-                        self.report({'INFO'}, f"Saved viewport screenshot to {path}")
-                        return {'FINISHED'}
-
-        self.report({'ERROR'}, "No 3D Viewport area found")
-        return {'CANCELLED'}
-
 class OBJECT_OT_flatten_uv_to_geometry(bpy.types.Operator):
     bl_idname = "object.flatten_uv_to_geometry"
     bl_label = "Flatten UV to Geometry (From Another Object)"
@@ -202,89 +151,15 @@ class VIEW3D_PT_uv_geometry_tools(bpy.types.Panel):
         layout = self.layout
         layout.operator("object.flatten_same_uv_to_geometry")
         layout.operator("object.flatten_uv_to_geometry")
-        layout.operator("object.capture_viewport_topdown")
-
-class OBJECT_OT_render_flat_uv_image(bpy.types.Operator):
-    bl_idname = "object.render_flat_uv_image"
-    bl_label = "Render UV Flattened Mesh"
-    bl_description = "Renders the UV-flattened mesh to a flat image"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    image_name: bpy.props.StringProperty(name="Image Name", default="UV_Render")
-    resolution: bpy.props.IntProperty(name="Resolution", default=1024, min=64, max=8192)
-
-    def execute(self, context):
-        obj = context.active_object
-        if obj.type != 'MESH':
-            self.report({'ERROR'}, "Select a UV-flattened mesh object")
-            return {'CANCELLED'}
-
-        # Create temporary scene
-        scene = bpy.data.scenes.new("UV_Render_Scene")
-        scene.render.engine = 'CYCLES'  # or 'BLENDER_EEVEE'
-        scene.render.resolution_x = self.resolution
-        scene.render.resolution_y = self.resolution
-        scene.render.film_transparent = True
-
-        # Create new camera
-        cam_data = bpy.data.cameras.new("UV_Camera")
-        cam_data.type = 'ORTHO'
-        cam_data.ortho_scale = 2.0  # Match UV space (0-1 scaled up)
-        cam_obj = bpy.data.objects.new("UV_Camera", cam_data)
-        cam_obj.location = (1.0, 1.0, 5.0)
-        cam_obj.rotation_euler = (0, 0, 0)
-        scene.collection.objects.link(cam_obj)
-        scene.camera = cam_obj
-
-        # Copy the object to new scene
-        obj_copy = obj.copy()
-        obj_copy.data = obj.data.copy()
-        scene.collection.objects.link(obj_copy)
-
-        # Create flat emission material if none
-        for slot in obj_copy.material_slots:
-            mat = slot.material
-            if mat and mat.use_nodes:
-                bsdf = mat.node_tree.nodes.get("Principled BSDF")
-                if bsdf:
-                    # Replace with Emission shader
-                    mat.node_tree.nodes.remove(bsdf)
-                    emission = mat.node_tree.nodes.new("ShaderNodeEmission")
-                    mat.node_tree.links.new(
-                        emission.outputs["Emission"],
-                        mat.node_tree.nodes["Material Output"].inputs["Surface"]
-                    )
-
-        # Set up render output
-        tmp_image = bpy.data.images.new(self.image_name, width=self.resolution, height=self.resolution)
-        scene.use_nodes = True
-        tree = scene.node_tree
-        tree.nodes.clear()
-
-        render_layer = tree.nodes.new(type='CompositorNodeRLayers')
-        comp_out = tree.nodes.new(type='CompositorNodeComposite')
-        image_out = tree.nodes.new(type='CompositorNodeViewer')
-        tree.links.new(render_layer.outputs["Image"], comp_out.inputs["Image"])
-        tree.links.new(render_layer.outputs["Image"], image_out.inputs["Image"])
-
-        # Render it
-        bpy.ops.render.render(write_still=False, scene=scene.name)
-
-        self.report({'INFO'}, f"Rendered to viewer node. Save manually or extend to write to file.")
-
-        return {'FINISHED'}
-
 
 def register():
     bpy.utils.register_class(OBJECT_OT_flatten_same_uv_to_geometry)
     bpy.utils.register_class(OBJECT_OT_flatten_uv_to_geometry)
-    bpy.utils.register_class(OBJECT_OT_capture_viewport_topdown)
     bpy.utils.register_class(VIEW3D_PT_uv_geometry_tools)
 
 def unregister():
     bpy.utils.unregister_class(OBJECT_OT_flatten_same_uv_to_geometry)
     bpy.utils.unregister_class(OBJECT_OT_flatten_uv_to_geometry)
-    bpy.utils.unregister_class(OBJECT_OT_capture_viewport_topdown)
     bpy.utils.unregister_class(VIEW3D_PT_uv_geometry_tools)
 
 if __name__ == "__main__":
