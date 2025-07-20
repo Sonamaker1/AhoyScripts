@@ -13,6 +13,57 @@ from bpy_extras.io_utils import ExportHelper
 import bpy
 import bmesh
 
+class OBJECT_OT_capture_viewport_topdown(bpy.types.Operator):
+    bl_idname = "object.capture_viewport_topdown"
+    bl_label = "Capture Viewport Snapshot (Top Ortho)"
+
+    def execute(self, context):
+        # Deselect all except the target object
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        target_obj = context.active_object
+        target_obj.select_set(True)
+
+        # Switch to top orthographic view
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                for region in area.regions:
+                    if region.type == 'WINDOW':
+                        for space in area.spaces:
+                            if space.type == 'VIEW_3D':
+                                override = {
+                                    'area': area,
+                                    'region': region,
+                                    'space': space,
+                                    'scene': context.scene
+                                }
+                                bpy.ops.view3d.view_persportho(override)
+
+
+                        # Set shading to solid flat
+                        area.spaces[0].shading.type = 'SOLID'
+                        area.spaces[0].shading.light = 'FLAT'
+
+                        # Set resolution and screenshot path
+                        path = bpy.path.abspath("//viewport_snapshot.png")
+                        bpy.ops.screen.screenshot(filepath=path, full=True)
+                        self.report({'INFO'}, f"Saved viewport screenshot to {path}")
+                        return {'FINISHED'}
+
+
+                        # Set shading to solid flat
+                        area.spaces[0].shading.type = 'SOLID'
+                        area.spaces[0].shading.light = 'FLAT'
+
+                        # Set resolution and screenshot path
+                        path = bpy.path.abspath("//viewport_snapshot.png")
+                        bpy.ops.screen.screenshot(filepath=path, full=True)
+                        self.report({'INFO'}, f"Saved viewport screenshot to {path}")
+                        return {'FINISHED'}
+
+        self.report({'ERROR'}, "No 3D Viewport area found")
+        return {'CANCELLED'}
+
 class OBJECT_OT_flatten_uv_to_geometry(bpy.types.Operator):
     bl_idname = "object.flatten_uv_to_geometry"
     bl_label = "Flatten UV to Geometry (From Another Object)"
@@ -151,7 +202,7 @@ class VIEW3D_PT_uv_geometry_tools(bpy.types.Panel):
         layout = self.layout
         layout.operator("object.flatten_same_uv_to_geometry")
         layout.operator("object.flatten_uv_to_geometry")
-        layout.operator("object.render_flat_uv_image")
+        layout.operator("object.capture_viewport_topdown")
 
 class OBJECT_OT_render_flat_uv_image(bpy.types.Operator):
     bl_idname = "object.render_flat_uv_image"
@@ -227,13 +278,13 @@ class OBJECT_OT_render_flat_uv_image(bpy.types.Operator):
 def register():
     bpy.utils.register_class(OBJECT_OT_flatten_same_uv_to_geometry)
     bpy.utils.register_class(OBJECT_OT_flatten_uv_to_geometry)
-    bpy.utils.register_class(OBJECT_OT_render_flat_uv_image)
+    bpy.utils.register_class(OBJECT_OT_capture_viewport_topdown)
     bpy.utils.register_class(VIEW3D_PT_uv_geometry_tools)
 
 def unregister():
     bpy.utils.unregister_class(OBJECT_OT_flatten_same_uv_to_geometry)
     bpy.utils.unregister_class(OBJECT_OT_flatten_uv_to_geometry)
-    bpy.utils.unregister_class(OBJECT_OT_render_flat_uv_image)
+    bpy.utils.unregister_class(OBJECT_OT_capture_viewport_topdown)
     bpy.utils.unregister_class(VIEW3D_PT_uv_geometry_tools)
 
 if __name__ == "__main__":
