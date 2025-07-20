@@ -7,6 +7,9 @@ bl_info = {
     "category": "UV",
 }
 
+import os
+import bpy
+from bpy_extras.io_utils import ExportHelper
 import bpy
 import bmesh
 
@@ -66,6 +69,14 @@ class OBJECT_OT_flatten_uv_to_geometry(bpy.types.Operator):
             except ValueError:
                 # Face might already exist due to shared verts; skip
                 pass
+        
+        # Create UV layer in new mesh and copy target UVs
+        uv_target_layer = target_bm.loops.layers.uv.active
+        uv_new_layer = flat_bm.loops.layers.uv.new("OriginalUV")
+
+        for flat_face, tgt_face in zip(flat_bm.faces, target_bm.faces):
+            for flat_loop, tgt_loop in zip(flat_face.loops, tgt_face.loops):
+                flat_loop[uv_new_layer].uv = tgt_loop[uv_target_layer].uv.copy()
 
         flat_bm.normal_update()
         new_mesh = bpy.data.meshes.new(target_obj.name + "_UVFlat")
