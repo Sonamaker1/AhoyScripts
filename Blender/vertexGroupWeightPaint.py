@@ -29,14 +29,14 @@ def set_vertex_group_weights(obj, group, weights_dict):
     for v_index, weight in weights_dict.items():
         group.add([v_index], weight, 'REPLACE')
 
-def mirror_weights(obj, axis):
+def mirror_vertex_group(obj, group, axis):
     bpy.ops.object.mode_set(mode='OBJECT')
     mesh = obj.data
     bm = bmesh.new()
     bm.from_mesh(mesh)
     bm.verts.ensure_lookup_table()
 
-    # Create lookup: position -> vertex index
+    # Build lookup of mirrored verts: source index → target index
     pos_to_index = {tuple(round(coord, 6) for coord in v.co): v.index for v in mesh.vertices}
     index_map = {}
 
@@ -50,13 +50,13 @@ def mirror_weights(obj, axis):
         if key in pos_to_index:
             index_map[v.index] = pos_to_index[key]
 
-    for group in obj.vertex_groups:
-        original_weights = get_vertex_group_weights(obj, group)
-        mirrored_weights = {}
-        for src_idx, tgt_idx in index_map.items():
-            if src_idx in original_weights:
-                mirrored_weights[tgt_idx] = original_weights[src_idx]
-        set_vertex_group_weights(obj, group, mirrored_weights)
+    # Get original weights from the active group only
+    original_weights = get_vertex_group_weights(obj, group)
+
+    # Mirror weights to mirrored verts (only assigning, not clearing anything else)
+    for src_idx, tgt_idx in index_map.items():
+        if src_idx in original_weights:
+            group.add([tgt_idx], original_weights[src_idx], 'REPLACE')
 
     bm.free()
 
@@ -97,9 +97,9 @@ class VGWT_OT_PasteWeights(bpy.types.Operator):
 
 class VGWT_OT_MirrorWeights(bpy.types.Operator):
     bl_idname = "vgwt.mirror_weights"
-    bl_label = "Mirror Weights"
-    bl_description = "Mirror weights across the chosen axis"
-
+    bl_label = "Mirror Weights (Active Group)"
+    bl_description = "Mirror active vertex group weights across the chosen axis"
+    
     axis: EnumProperty(
         items=[
             ('X', "X Axis", "Mirror across X axis"),
@@ -112,9 +112,14 @@ class VGWT_OT_MirrorWeights(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.object
-        mirror_weights(obj, self.axis)
-        self.report({'INFO'}, f"Mirrored all groups across {self.axis} axis")
+        group = get_active_vertex_group(obj)
+        if not group:
+            self.report({'ERROR'}, "No active vertex group")
+            return {'CANCELLED'}
+        mirror_vertex_group(obj, group, self.axis)
+        self.report({'INFO'}, f"Mirrored weights for group '{group.name}' on {self.axis} axis")
         return {'FINISHED'}
+
 
 class VGWT_PT_ToolsPanel(bpy.types.Panel):
     bl_label = "Vertex Group Tools"
