@@ -30,6 +30,7 @@ def set_vertex_group_weights(obj, group, weights_dict):
         group.add([v_index], weight, 'REPLACE')
 
 def mirror_vertex_group(obj, group, axis, replace=True):
+    original_mode = obj.mode
     bpy.ops.object.mode_set(mode='OBJECT')
     mesh = obj.data
     bm = bmesh.new()
@@ -61,6 +62,9 @@ def mirror_vertex_group(obj, group, axis, replace=True):
             group.add([tgt_idx], original_weights[src_idx], 'REPLACE')
 
     bm.free()
+    # original_mode = obj.mode
+    if obj.mode != original_mode:
+        bpy.ops.object.mode_set(mode=original_mode)
 
 # Panel + Operators
 
@@ -138,14 +142,14 @@ def mirror_weight_buffer(obj, axis):
     global temp_weights
     if not temp_weights:
         return False
-
+    original_mode = obj.mode
     bpy.ops.object.mode_set(mode='OBJECT')
     mesh = obj.data
     bm = bmesh.new()
     bm.from_mesh(mesh)
     bm.verts.ensure_lookup_table()
 
-    pos_to_index = {tuple(round(v.co.x, 6), round(v.co.y, 6), round(v.co.z, 6)): v.index for v in bm.verts}
+    pos_to_index = {(round(v.co.x, 6), round(v.co.y, 6), round(v.co.z, 6)): v.index for v in bm.verts}
     index_map = {}
 
     for v in bm.verts:
@@ -165,6 +169,9 @@ def mirror_weight_buffer(obj, axis):
 
     temp_weights = mirrored_weights
     bm.free()
+    # original_mode = obj.mode
+    if obj.mode != original_mode:
+        bpy.ops.object.mode_set(mode=original_mode)
     return True
 
 class VGWT_OT_MirrorBuffer(bpy.types.Operator):
