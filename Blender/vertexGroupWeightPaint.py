@@ -36,7 +36,7 @@ def mirror_vertex_group(obj, group, axis, replace=True):
     bm.from_mesh(mesh)
     bm.verts.ensure_lookup_table()
 
-    pos_to_index = {tuple(round(coord, 6) for coord in v.co): v.index for v in mesh.vertices}
+    pos_to_index = { (round(v.co.x, 6), round(v.co.y, 6), round(v.co.z, 6)) : v.index for v in bm.verts }
     index_map = {}
 
     for v in bm.verts:
