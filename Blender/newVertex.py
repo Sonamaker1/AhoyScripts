@@ -271,7 +271,7 @@ classes = (
     EDITVERTEX_OT_copy_vertices,
     EDITVERTEX_OT_paste_vertices,
     EDITVERTEX_OT_move_selected_axis,
-    EDITVERTEX_OT_align_axis_to_previous,
+    EDITVERTEX_OT_snap_axis_from_first,
     EDITVERTEX_PT_panel,
 )
 
