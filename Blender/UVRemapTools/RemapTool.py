@@ -147,105 +147,116 @@ class OBJECT_OT_flatten_same_uv_to_geometry(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        selected_objs = [obj for obj in context.selected_objects if obj.type == 'MESH']
-
-        if not selected_objs:
-            self.report({'ERROR'}, "No mesh objects selected.")
+        selected_objects = [obj for obj in context.selected_objects if obj.type == 'MESH']
+        if not selected_objects:
+            self.report({'WARNING'}, "No mesh objects selected")
             return {'CANCELLED'}
 
-        for obj in selected_objs:
-            if not obj.data.uv_layers:
-                self.report({'WARNING'}, f"Object {obj.name} has no UV map, skipping.")
-                continue
-
+        for obj in selected_objects:
             mesh = obj.data
-            uv_layer = mesh.uv_layers.active
-
-            # Prepare new mesh and object
-            new_mesh = bpy.data.meshes.new(obj.name + "_Flattened")
-            new_obj = bpy.data.objects.new(obj.name + "_Flattened", new_mesh)
-            context.collection.objects.link(new_obj)
-
-            # Copy materials
-            new_obj.data.materials.clear()
-            for mat in obj.data.materials:
-                new_obj.data.materials.append(mat)
-
             bm_old = bmesh.new()
             bm_old.from_mesh(mesh)
             uv_layer_old = bm_old.loops.layers.uv.active
 
-            bm_new = bmesh.new()
-            mat_layer = bm_new.faces.layers.material.verify()
+            if uv_layer_old is None:
+                self.report({'WARNING'}, f"{obj.name} has no active UV map")
+                bm_old.free()
+                continue
 
-            all_uvs = []
+            # Gather all UVs
+            all_uvs = [loop[uv_layer_old].uv.copy() for face in bm_old.faces for loop in face.loops]
+            if not all_uvs:
+                self.report({'WARNING'}, f"{obj.name} has no UV coordinates")
+                bm_old.free()
+                continue
+
+            # Find bounds of UVs
+            min_uv = Vector((min(uv.x for uv in all_uvs), min(uv.y for uv in all_uvs)))
+            max_uv = Vector((max(uv.x for uv in all_uvs), max(uv.y for uv in all_uvs)))
+
+            # Create base plane object
+            plane_mesh = bpy.data.meshes.new(f"{obj.name}_uv_plane")
+            plane_obj = bpy.data.objects.new(f"{obj.name}_UVBase", plane_mesh)
+            context.collection.objects.link(plane_obj)
+
+            verts = [
+                (0, 0, -0.001),
+                (1, 0, -0.001),
+                (1, 1, -0.001),
+                (0, 1, -0.001)
+            ]
+            faces = [(0, 1, 2, 3)]
+            plane_mesh.from_pydata(verts, [], faces)
+            plane_mesh.update()
+
+            # Transform to match UV bounds
+            center = (min_uv + max_uv) / 2
+            scale = max(max_uv.x - min_uv.x, max_uv.y - min_uv.y)
+            plane_obj.scale = (scale, scale, 1)
+            plane_obj.location = (center.x, center.y, 0)
+
+            # Flattened mesh from UVs
+            bm_new = bmesh.new()
+
+            use_materials = len(mesh.materials) > 0
+            mat_layer = None
+            if use_materials:
+                mat_layer = bm_new.faces.layers.material.verify() 
+            
 
             for face in bm_old.faces:
                 new_verts = []
                 for loop in face.loops:
                     uv = loop[uv_layer_old].uv
-                    all_uvs.append(uv)
                     v = bm_new.verts.new((uv.x, uv.y, 0))
                     new_verts.append(v)
                 try:
                     new_face = bm_new.faces.new(new_verts)
-                except:
+                except ValueError:
                     continue  # Skip duplicate face
-                new_face[mat_layer] = face.material_index
+                if use_materials:
+                    new_face[mat_layer] = face.material_index
 
-            bm_new.to_mesh(new_mesh)
+            bm_new.normal_update()
             bm_old.free()
+
+            # Create new object from flattened mesh
+            new_mesh = bpy.data.meshes.new(f"{obj.name}_flattened")
+            bm_new.to_mesh(new_mesh)
             bm_new.free()
+            new_obj = bpy.data.objects.new(f"{obj.name}_Flattened", new_mesh)
+            context.collection.objects.link(new_obj)
 
-            # Add new UVs
-            new_uv_layer = new_mesh.uv_layers.new(name="FlattenedUV")
-            for loop_idx, loop in enumerate(new_mesh.loops):
-                new_uv_layer.data[loop_idx].uv = new_mesh.vertices[loop.vertex_index].co.xy
+            # Inherit materials
+            if use_materials:
+                for mat in mesh.materials:
+                    new_mesh.materials.append(mat)
 
-            # Create base plane
-            if all_uvs:
-                min_uv = Vector((min(uv.x for uv in all_uvs), min(uv.y for uv in all_uvs)))
-                max_uv = Vector((max(uv.x for uv in all_uvs), max(uv.y for uv in all_uvs)))
-                size = max_uv - min_uv
+            # Parent flattened object to plane
+            new_obj.parent = plane_obj
 
-                base_mesh = bpy.data.meshes.new(obj.name + "_Base")
-                base_obj = bpy.data.objects.new(obj.name + "_Base", base_mesh)
-                context.collection.objects.link(base_obj)
-
-                plane_verts = [
-                    (0, 0, 0),
-                    (1, 0, 0),
-                    (1, 1, 0),
-                    (0, 1, 0),
-                ]
-                plane_faces = [(0, 1, 2, 3)]
-                base_mesh.from_pydata(plane_verts, [], plane_faces)
-                base_mesh.update()
-
-                base_obj.scale = (size.x, size.y, 1)
-                base_obj.location = (min_uv.x, min_uv.y, -0.001)
-                new_obj.parent = base_obj
-
-            # Cleanup geometry
+            # Cleanup: Merge by distance and recalculate normals
             bpy.ops.object.select_all(action='DESELECT')
-            context.view_layer.objects.active = new_obj
+            bpy.context.view_layer.objects.active = new_obj
             new_obj.select_set(True)
 
             try:
                 bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.ops.mesh.remove_doubles(threshold=0.000001)
-                bpy.ops.mesh.normals_make_consistent(inside=False)
-                bpy.ops.object.mode_set(mode='OBJECT')
             except RuntimeError as e:
-                self.report({'WARNING'}, f"Cleanup failed on {obj.name}: {e}")
+                self.report({'ERROR'}, f"Could not switch to edit mode: {e}")
+                return {'CANCELLED'}
 
-            # Final selection cleanup
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.remove_doubles(threshold=0.000001)
+            bpy.ops.mesh.normals_make_consistent(inside=False)
+
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+            # Select the plane for convenience
             bpy.ops.object.select_all(action='DESELECT')
-            base_obj.select_set(True)
-            context.view_layer.objects.active = base_obj
+            plane_obj.select_set(True)
+            context.view_layer.objects.active = plane_obj
 
-        self.report({'INFO'}, f"Flattened {len(selected_objs)} object(s) to UV geometry.")
         return {'FINISHED'}
 
 class VIEW3D_PT_uv_geometry_tools(bpy.types.Panel):
