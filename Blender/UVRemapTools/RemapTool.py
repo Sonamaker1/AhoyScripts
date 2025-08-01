@@ -10,8 +10,8 @@ bl_info = {
 import os
 import bpy
 from bpy_extras.io_utils import ExportHelper
-import bpy
 import bmesh
+from mathutils import Vector
 
 class OBJECT_OT_flatten_uv_to_geometry(bpy.types.Operator):
     bl_idname = "object.flatten_uv_to_geometry"
@@ -22,7 +22,7 @@ class OBJECT_OT_flatten_uv_to_geometry(bpy.types.Operator):
     def execute(self, context):
         selection = context.selected_objects
         if len(selection) != 2:
-            self.report({'ERROR'}, "Select exactly 2 mesh objects: target and source (UV)")
+            self.report({'ERROR'}, "Select exactly two objects: UV Source then Target")
             return {'CANCELLED'}
 
         # Sort: target = active, source = other
@@ -85,10 +85,43 @@ class OBJECT_OT_flatten_uv_to_geometry(bpy.types.Operator):
         target_bm.free()
         source_bm.free()
 
+
         new_obj = bpy.data.objects.new(target_obj.name + "_UVFlat", new_mesh)
+        for mat in target_obj.data.materials:
+            new_obj.data.materials.append(mat)
         context.collection.objects.link(new_obj)
         new_obj.select_set(True)
         context.view_layer.objects.active = new_obj
+
+        # Create UV guide plane
+        plane_mesh = bpy.data.meshes.new("UV_BasePlane")
+        plane_obj = bpy.data.objects.new("UV_BasePlane", plane_mesh)
+        context.collection.objects.link(plane_obj)
+
+        verts = [
+            Vector((0, 0, -0.01)),
+            Vector((2.0, 0, -0.01)),
+            Vector((2.0, 2.0, -0.01)),
+            Vector((0, 2.0, -0.01)),
+        ]
+        faces = [(0, 1, 2, 3)]
+        plane_mesh.from_pydata(verts, [], faces)
+        plane_mesh.update()
+
+        # Add UVs to the guide plane
+        bm_plane = bmesh.new()
+        bm_plane.from_mesh(plane_mesh)
+        uv_layer_plane = bm_plane.loops.layers.uv.new()
+        uv_coords = [(0, 0), (1, 0), (1, 1), (0, 1)]
+        for face in bm_plane.faces:
+            for loop, uv in zip(face.loops, uv_coords):
+                loop[uv_layer_plane].uv = uv
+        bm_plane.to_mesh(plane_mesh)
+        bm_plane.free()
+
+        # Parent the flattened object to the guide plane
+        new_obj.parent = plane_obj
+
 
         self.report({'INFO'}, "Flattened mesh created using UVs from source object.")
         return {'FINISHED'}
