@@ -10,87 +10,112 @@ bl_info = {
 import os
 import bpy
 from bpy_extras.io_utils import ExportHelper
-import bpy
 import bmesh
+from mathutils import Vector
 
 class OBJECT_OT_flatten_uv_to_geometry(bpy.types.Operator):
     bl_idname = "object.flatten_uv_to_geometry"
-    bl_label = "Flatten UV to Geometry (From Another Object)"
-    bl_description = "Physically flattens the active object's geometry using the UV map of another selected object"
+    bl_label = "Flatten to UV Geometry with Base Plane"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        selection = context.selected_objects
-        if len(selection) != 2:
-            self.report({'ERROR'}, "Select exactly 2 mesh objects: target and source (UV)")
+        selected = context.selected_objects
+        if len(selected) != 2:
+            self.report({'ERROR'}, "Select exactly two objects: UV Source then Target")
             return {'CANCELLED'}
 
-        # Sort: target = active, source = other
-        target_obj = context.active_object
-        source_obj = [obj for obj in selection if obj != target_obj][0]
-
-        if target_obj.type != 'MESH' or source_obj.type != 'MESH':
-            self.report({'ERROR'}, "Both selected objects must be meshes")
+        source_obj, target_obj = selected
+        if source_obj.type != 'MESH' or target_obj.type != 'MESH':
+            self.report({'ERROR'}, "Both objects must be meshes")
             return {'CANCELLED'}
 
-        target_mesh = target_obj.data
         source_mesh = source_obj.data
+        target_mesh = target_obj.data
 
-        if len(target_mesh.polygons) != len(source_mesh.polygons):
-            self.report({'ERROR'}, "Objects must have identical geometry (same face count)")
-            return {'CANCELLED'}
-
-        # Prepare bmeshes
-        target_bm = bmesh.new()
-        target_bm.from_mesh(target_mesh)
-        source_bm = bmesh.new()
-        source_bm.from_mesh(source_mesh)
-        uv_layer = source_bm.loops.layers.uv.active
-
-        if uv_layer is None:
+        # Get UVs from source mesh
+        bm_source = bmesh.new()
+        bm_source.from_mesh(source_mesh)
+        uv_layer_source = bm_source.loops.layers.uv.active
+        if not uv_layer_source:
             self.report({'ERROR'}, "Source object has no UV map")
             return {'CANCELLED'}
 
-        flat_bm = bmesh.new()
+        source_faces = list(bm_source.faces)
 
-        # Use a matching-by-face-order approach
-        source_faces = list(source_bm.faces)
-        target_faces = list(target_bm.faces)
+        # Get material indices from target mesh
+        bm_target = bmesh.new()
+        bm_target.from_mesh(target_mesh)
+        target_faces = list(bm_target.faces)
+        target_face_materials = [f.material_index for f in target_faces]
 
-        for src_face, tgt_face in zip(source_faces, target_faces):
-            new_verts = []
-            for src_loop, tgt_loop in zip(src_face.loops, tgt_face.loops):
-                uv = src_loop[uv_layer].uv
-                # Place new vertex at UV coordinates in XY space
-                vert = flat_bm.verts.new((uv.x * 2.0, uv.y * 2.0, 0))
-                new_verts.append(vert)
-            try:
-                flat_bm.faces.new(new_verts)
-            except ValueError:
-                # Face might already exist due to shared verts; skip
-                pass
-        
-        # Create UV layer in new mesh and copy target UVs
-        uv_target_layer = target_bm.loops.layers.uv.active
-        uv_new_layer = flat_bm.loops.layers.uv.new("OriginalUV")
-
-        for flat_face, tgt_face in zip(flat_bm.faces, target_bm.faces):
-            for flat_loop, tgt_loop in zip(flat_face.loops, tgt_face.loops):
-                flat_loop[uv_new_layer].uv = tgt_loop[uv_target_layer].uv.copy()
-
-        flat_bm.normal_update()
+        # Create new mesh and object
         new_mesh = bpy.data.meshes.new(target_obj.name + "_UVFlat")
-        flat_bm.to_mesh(new_mesh)
-        flat_bm.free()
-        target_bm.free()
-        source_bm.free()
-
         new_obj = bpy.data.objects.new(target_obj.name + "_UVFlat", new_mesh)
         context.collection.objects.link(new_obj)
+
+        # Copy target object's materials
+        for mat in target_obj.data.materials:
+            new_obj.data.materials.append(mat)
+
+        # Create a base plane material
+        base_plane_mat = bpy.data.materials.get("UV_Base_Plane_Material")
+        if not base_plane_mat:
+            base_plane_mat = bpy.data.materials.new(name="UV_Base_Plane_Material")
+        new_obj.data.materials.append(base_plane_mat)
+        base_plane_index = len(new_obj.data.materials) - 1
+
+        # Build flattened geometry
+        bm_flat = bmesh.new()
+        uv_layer_flat = bm_flat.loops.layers.uv.new("FlattenedUVs")
+
+        all_uvs = []
+
+        for i, (src_face, tgt_face) in enumerate(zip(source_faces, target_faces)):
+            verts = []
+            face_uvs = []
+            for src_loop in src_face.loops:
+                uv = src_loop[uv_layer_source].uv.copy()
+                vert = bm_flat.verts.new((uv.x * 2.0, uv.y * 2.0, 0))
+                verts.append(vert)
+                face_uvs.append(uv)
+                all_uvs.append(uv)
+
+            try:
+                new_face = bm_flat.faces.new(verts)
+                new_face.material_index = target_face_materials[i]
+                for loop, uv in zip(new_face.loops, face_uvs):
+                    loop[uv_layer_flat].uv = uv
+            except ValueError:
+                pass  # Skip duplicate faces
+
+        # Add a UV base plane under the geometry
+        if all_uvs:
+            min_uv = Vector((min(uv.x for uv in all_uvs), min(uv.y for uv in all_uvs)))
+            max_uv = Vector((max(uv.x for uv in all_uvs), max(uv.y for uv in all_uvs)))
+
+            margin = 0.05  # Optional: small margin around UV island
+            min_uv -= Vector((margin, margin))
+            max_uv += Vector((margin, margin))
+
+            p1 = bm_flat.verts.new((min_uv.x * 2.0, min_uv.y * 2.0, -0.01))
+            p2 = bm_flat.verts.new((max_uv.x * 2.0, min_uv.y * 2.0, -0.01))
+            p3 = bm_flat.verts.new((max_uv.x * 2.0, max_uv.y * 2.0, -0.01))
+            p4 = bm_flat.verts.new((min_uv.x * 2.0, max_uv.y * 2.0, -0.01))
+
+            base_face = bm_flat.faces.new([p1, p2, p3, p4])
+            base_face.material_index = base_plane_index
+            for loop, uv in zip(base_face.loops, [min_uv, (max_uv.x, min_uv.y), max_uv, (min_uv.x, max_uv.y)]):
+                loop[uv_layer_flat].uv = Vector(uv)
+
+        # Apply to mesh and finish
+        bm_flat.to_mesh(new_mesh)
+        bm_flat.free()
+        bm_source.free()
+        bm_target.free()
+
         new_obj.select_set(True)
         context.view_layer.objects.active = new_obj
 
-        self.report({'INFO'}, "Flattened mesh created using UVs from source object.")
         return {'FINISHED'}
 
 
