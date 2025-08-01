@@ -167,10 +167,42 @@ class OBJECT_OT_flatten_same_uv_to_geometry(bpy.types.Operator):
         flat_bm.free()
 
         new_obj = bpy.data.objects.new(obj.name + "_UVFlat", new_mesh)
+        for mat in obj.data.materials:
+            new_obj.data.materials.append(mat)
         context.collection.objects.link(new_obj)
         new_obj.select_set(True)
         context.view_layer.objects.active = new_obj
+        
+        # Create UV guide plane
+        plane_mesh = bpy.data.meshes.new("UV_BasePlane")
+        plane_obj = bpy.data.objects.new("UV_BasePlane", plane_mesh)
+        context.collection.objects.link(plane_obj)
 
+        verts = [
+            Vector((0, 0, -0.01)),
+            Vector((2.0, 0, -0.01)),
+            Vector((2.0, 2.0, -0.01)),
+            Vector((0, 2.0, -0.01)),
+        ]
+        faces = [(0, 1, 2, 3)]
+        plane_mesh.from_pydata(verts, [], faces)
+        plane_mesh.update()
+
+        # Add UVs to the guide plane
+        bm_plane = bmesh.new()
+        bm_plane.from_mesh(plane_mesh)
+        uv_layer_plane = bm_plane.loops.layers.uv.new()
+        uv_coords = [(0, 0), (1, 0), (1, 1), (0, 1)]
+        for face in bm_plane.faces:
+            for loop, uv in zip(face.loops, uv_coords):
+                loop[uv_layer_plane].uv = uv
+        bm_plane.to_mesh(plane_mesh)
+        bm_plane.free()
+        for mat in obj.data.materials:
+            plane_obj.data.materials.append(mat)
+        context.collection.objects.link(new_obj)
+        # Parent the flattened object to the guide plane
+        new_obj.parent = plane_obj
         return {'FINISHED'}
 
 class VIEW3D_PT_uv_geometry_tools(bpy.types.Panel):
