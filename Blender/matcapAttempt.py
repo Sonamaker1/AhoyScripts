@@ -1,5 +1,5 @@
 bl_info = {
-    "name": "Matcap Tools",
+    "name": "Matcap Material Creator & Baker",
     "blender": (4, 0, 0),
     "category": "Material",
 }
@@ -7,132 +7,154 @@ bl_info = {
 import bpy
 import os
 
-def get_next_matcap_name():
-    base_name = "Matcap"
-    existing = [m.name for m in bpy.data.materials if m.name.startswith(base_name)]
-    i = 0
-    while True:
-        name = base_name if i == 0 else f"{base_name}.{str(i).zfill(3)}"
-        if name not in existing:
-            return name
-        i += 1
+class MATCAP_PT_panel(bpy.types.Panel):
+    bl_label = "Matcap Material"
+    bl_idname = "MATCAP_PT_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Matcap'
 
-def create_matcap_material(matcap_path):
-    mat = bpy.data.materials.new(name=get_next_matcap_name())
-    mat.use_nodes = True
-    nodes = mat.node_tree.nodes
-    links = mat.node_tree.links
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("matcap.create", text="Create Matcap Material")
+        layout.operator("matcap.bake", text="Bake Material to UVs")
 
-    nodes.clear()
 
-    output = nodes.new(type="ShaderNodeOutputMaterial")
-    principled = nodes.new(type="ShaderNodeBsdfPrincipled")
-    tex_img = nodes.new(type="ShaderNodeTexImage")
-    geom = nodes.new(type="ShaderNodeNewGeometry")
-    mapping = nodes.new(type="ShaderNodeMapping")
-    sep_xyz = nodes.new(type="ShaderNodeSeparateXYZ")
-    combine_rgb = nodes.new(type="ShaderNodeCombineRGB")
-
-    tex_img.image = bpy.data.images.load(matcap_path)
-    tex_img.interpolation = 'Closest'
-    tex_img.projection = 'SPHERE'
-
-    # Layout
-    output.location = (400, 0)
-    principled.location = (200, 0)
-    combine_rgb.location = (-200, 0)
-    sep_xyz.location = (-400, 0)
-    geom.location = (-600, 0)
-    tex_img.location = (0, -200)
-
-    # Links
-    links.new(principled.outputs["BSDF"], output.inputs["Surface"])
-    links.new(combine_rgb.outputs["Image"], principled.inputs["Base Color"])
-    links.new(sep_xyz.outputs["X"], combine_rgb.inputs["R"])
-    links.new(sep_xyz.outputs["Y"], combine_rgb.inputs["G"])
-    links.new(sep_xyz.outputs["Z"], combine_rgb.inputs["B"])
-    links.new(geom.outputs["Normal"], sep_xyz.inputs["Vector"])
-
-    return mat
-
-class MATCAPTOOLS_OT_create(bpy.types.Operator):
-    bl_idname = "matcap_tools.create"
+class MATCAP_OT_create(bpy.types.Operator):
+    bl_idname = "matcap.create"
     bl_label = "Create Matcap Material"
+    bl_description = "Pick a matcap image and create a material using it"
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
 
     def execute(self, context):
-        # Try to detect current matcap
-        matcap_path = bpy.context.preferences.themes[0].view_3d.matcap
-        if not os.path.isfile(matcap_path):
-            self.report({'WARNING'}, "Could not detect matcap image. Please select manually.")
-            matcap_path = bpy.path.abspath(bpy.path.ensure_ext(bpy.path.basename("//matcap.png"), ".png"))
-            bpy.ops.image.open('INVOKE_DEFAULT')
+        if not self.filepath or not os.path.isfile(self.filepath):
+            self.report({'ERROR'}, "No valid image selected")
             return {'CANCELLED'}
 
-        mat = create_matcap_material(matcap_path)
-        if context.object:
-            if context.object.data.materials:
-                context.object.data.materials[0] = mat
-            else:
-                context.object.data.materials.append(mat)
+        img = bpy.data.images.load(self.filepath)
 
-        self.report({'INFO'}, f"Matcap material created: {mat.name}")
+        # Make unique material name
+        base_name = "Matcap"
+        name = base_name
+        count = 1
+        while name in bpy.data.materials:
+            name = f"{base_name}.{count:03d}"
+            count += 1
+
+        mat = bpy.data.materials.new(name)
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        nodes.clear()
+
+        # Create nodes
+        output = nodes.new(type='ShaderNodeOutputMaterial')
+        output.location = (400, 0)
+
+        emission = nodes.new(type='ShaderNodeEmission')
+        emission.location = (200, 0)
+
+        tex = nodes.new(type='ShaderNodeTexImage')
+        tex.image = img
+        tex.location = (-200, 0)
+
+        # Normal-based mapping
+        normal = nodes.new(type='ShaderNodeNewGeometry')
+        normal.location = (-600, 0)
+
+        sep = nodes.new(type='ShaderNodeSeparateXYZ')
+        sep.location = (-400, 0)
+
+        combine = nodes.new(type='ShaderNodeCombineXYZ')
+        combine.location = (-200, -200)
+
+        mapping = nodes.new(type='ShaderNodeMapping')
+        mapping.location = (0, -200)
+        mapping.vector_type = 'NORMAL'
+
+        tex_coord = nodes.new(type='ShaderNodeTexCoord')
+        tex_coord.location = (-400, -200)
+
+        # Simplified: Use normal directly to map to matcap
+        # Normalize to UV space (0-1 range)
+        normal_map = nodes.new(type='ShaderNodeVectorMath')
+        normal_map.location = (-200, -400)
+        normal_map.operation = 'MULTIPLY_ADD'
+        normal_map.inputs[1].default_value = (0.5, 0.5, 0.5)
+        normal_map.inputs[2].default_value = (0.5, 0.5, 0.5)
+
+        links.new(normal.outputs['Normal'], normal_map.inputs[0])
+        links.new(normal_map.outputs[0], tex.inputs['Vector'])
+
+        links.new(tex.outputs['Color'], emission.inputs['Color'])
+        links.new(emission.outputs['Emission'], output.inputs['Surface'])
+
+        # Apply material to active object
+        obj = context.active_object
+        if obj and obj.type == 'MESH':
+            if obj.data.materials:
+                obj.data.materials[0] = mat
+            else:
+                obj.data.materials.append(mat)
+
+        self.report({'INFO'}, f"Matcap material '{name}' created and applied")
         return {'FINISHED'}
 
-class MATCAPTOOLS_OT_bake(bpy.types.Operator):
-    bl_idname = "matcap_tools.bake"
-    bl_label = "Bake Material to Object UVs"
+
+class MATCAP_OT_bake(bpy.types.Operator):
+    bl_idname = "matcap.bake"
+    bl_label = "Bake Material to UVs"
+    bl_description = "Bakes the active object's current material to its UV map"
 
     def execute(self, context):
         obj = context.active_object
-        if not obj or not obj.data.uv_layers:
-            self.report({'ERROR'}, "Active object has no UV map.")
+        if not obj or obj.type != 'MESH':
+            self.report({'ERROR'}, "Select a mesh object")
             return {'CANCELLED'}
 
-        img = bpy.data.images.new("MatcapBake", width=2048, height=2048)
         mat = obj.active_material
-        if not mat:
-            self.report({'ERROR'}, "No active material to bake.")
+        if not mat or not mat.use_nodes:
+            self.report({'ERROR'}, "Active object has no node material")
             return {'CANCELLED'}
 
-        tex_img = mat.node_tree.nodes.new("ShaderNodeTexImage")
-        tex_img.image = img
-        mat.node_tree.nodes.active = tex_img
+        # Create a new image to bake to
+        img_name = f"{obj.name}_MatcapBake"
+        img = bpy.data.images.new(img_name, width=2048, height=2048)
 
-        bpy.context.scene.render.engine = 'CYCLES'
-        bpy.context.scene.cycles.samples = 1
-        bpy.ops.object.bake(type='DIFFUSE', pass_filter={'COLOR'}, use_clear=True)
+        # Create temporary image texture node
+        nodes = mat.node_tree.nodes
+        tex_node = nodes.new(type='ShaderNodeTexImage')
+        tex_node.image = img
+        nodes.active = tex_node
 
-        img.filepath_raw = bpy.path.abspath("//matcap_bake.png")
+        # Bake
+        bpy.ops.object.bake(type='EMIT', margin=2)
+
+        # Remove temp node
+        nodes.remove(tex_node)
+
+        # Save image to file
+        img.filepath_raw = bpy.path.abspath(f"//{img_name}.png")
         img.file_format = 'PNG'
         img.save()
 
         self.report({'INFO'}, f"Baked to {img.filepath_raw}")
         return {'FINISHED'}
 
-class MATCAPTOOLS_PT_panel(bpy.types.Panel):
-    bl_label = "Matcap Tools"
-    bl_idname = "MATCAPTOOLS_PT_panel"
-    bl_space_type = 'NODE_EDITOR'
-    bl_region_type = 'UI'
-    bl_category = "Matcap"
 
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("matcap_tools.create", text="Create Matcap Material")
-        layout.operator("matcap_tools.bake", text="Bake Material to UVs")
-
-classes = (
-    MATCAPTOOLS_OT_create,
-    MATCAPTOOLS_OT_bake,
-    MATCAPTOOLS_PT_panel,
-)
+classes = (MATCAP_PT_panel, MATCAP_OT_create, MATCAP_OT_bake)
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
 def unregister():
-    for cls in classes:
+    for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
 if __name__ == "__main__":
