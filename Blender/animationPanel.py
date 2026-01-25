@@ -142,6 +142,51 @@ class PREVIEW_OT_play_action(bpy.types.Operator):
         bpy.ops.screen.animation_play()
         return {'FINISHED'}
 
+class PREVIEW_OT_rest_pose(bpy.types.Operator):
+    bl_idname = "anim.preview_rest_pose"
+    bl_label = "Preview Rest Pose (No Animation)"
+    bl_description = "Temporarily show the armature's neutral rest pose and stop any Action from driving it"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.object
+
+        if not obj or obj.type != 'ARMATURE':
+            self.report({'WARNING'}, "Select an armature object.")
+            return {'CANCELLED'}
+
+        # Stop playback if playing
+        if context.screen and context.screen.is_animation_playing:
+            bpy.ops.screen.animation_play()
+
+        # Ensure animation_data exists if we want to clear the action cleanly
+        if obj.animation_data:
+            obj.animation_data.action = None
+
+        # Clear pose to match rest pose (neutral T/A pose of the rig)
+        # Must be in pose mode for pose operators
+        prev_mode = obj.mode
+        try:
+            bpy.ops.object.mode_set(mode='POSE')
+            bpy.ops.pose.select_all(action='SELECT')
+            bpy.ops.pose.transforms_clear()   # location/rotation/scale to default
+        finally:
+            # Go back to previous mode (nice UX)
+            if prev_mode in {'OBJECT', 'POSE', 'EDIT'}:
+                bpy.ops.object.mode_set(mode=prev_mode)
+
+        # Force refresh (some rigs/drivers update cleaner with a frame nudge)
+        scene = context.scene
+        f = scene.frame_current
+        scene.frame_set(f)
+        # If you want an extra nudge:
+        # scene.frame_set(f + 1)
+        # scene.frame_set(f)
+
+        self.report({'INFO'}, "Showing rest pose (no action).")
+        return {'FINISHED'}
+
+
 class PREVIEW_PT_action_panel(bpy.types.Panel):
     bl_label = "Animation Preview"
     bl_idname = "PREVIEW_PT_action_panel"
@@ -153,9 +198,18 @@ class PREVIEW_PT_action_panel(bpy.types.Panel):
         layout = self.layout
         obj = context.object
 
-        if not obj or not obj.animation_data:
+        if not obj:
+            layout.label(text="Select an object")
+            return
+
+        layout.label(text="Preview:")
+        layout.operator("anim.preview_rest_pose", icon='ARMATURE_DATA')  # NEW BUTTON
+
+        if not obj.animation_data:
             layout.label(text="Select an animated object")
             return
+
+        layout.separator()
         layout.label(text="Pose Tools:")
         layout.operator("anim.apply_transform_to_keyframe", icon='KEY_HLT')
         layout.operator("anim.load_bone_transform", icon='IMPORT')
@@ -174,15 +228,17 @@ class PREVIEW_PT_action_panel(bpy.types.Panel):
 
         layout.operator("anim.set_bone_transform", icon='CON_ROTLIKE')
 
+        layout.separator()
         layout.label(text="Available Actions:")
         for action in bpy.data.actions:
             op = layout.operator("anim.preview_action", text=action.name)
             op.action_name = action.name
-            
+
 
 # Register
 classes = [
     PREVIEW_OT_play_action,
+    PREVIEW_OT_rest_pose,              # NEW
     PREVIEW_PT_action_panel,
     ANIMPREVIEW_OT_apply_transform_to_keyframe,
     BoneTransformProperties,
@@ -194,13 +250,12 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.bone_transform_props = bpy.props.PointerProperty(type=BoneTransformProperties)
-    
 
 def unregister():
     del bpy.types.Scene.bone_transform_props
-
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
 if __name__ == "__main__":
     register()
+
