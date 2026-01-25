@@ -149,6 +149,8 @@ class OBJECT_OT_generate_bone_primitives(bpy.types.Operator):
         return obj is not None and obj.type == 'ARMATURE'
 
     def execute(self, context):
+        generated = []
+
         arm = context.object
         props = context.scene.boneprims_props
 
@@ -194,8 +196,21 @@ class OBJECT_OT_generate_bone_primitives(bpy.types.Operator):
             thickness = max(props.min_thickness, L * props.thickness_ratio)
 
             base_mesh = cube_mesh if props.shape == "BOX" else sphere_mesh
+
             obj = bpy.data.objects.new(f"{props.name_prefix}{bn}", base_mesh)
             tgt_col.objects.link(obj)
+
+            # IMPORTANT: make the mesh unique per object (vertex weights are stored on the mesh datablock)
+            obj.data = base_mesh.copy()
+            obj.data.name = f"{obj.name}_MESH"
+
+            # Vertex group named the same as the object, and assign ALL vertices
+            vg = obj.vertex_groups.new(name=obj.name)
+            all_vidx = list(range(len(obj.data.vertices)))
+            if all_vidx:
+                vg.add(all_vidx, 1.0, 'REPLACE')
+
+            generated.append(obj)
 
             # Align object axes to the bone axes.
             bone_mat = bone_matrix_armature_space(arm, bn, props.use_pose)
@@ -233,6 +248,31 @@ class OBJECT_OT_generate_bone_primitives(bpy.types.Operator):
             # and relying on bone parent to supply orientation.
             obj.rotation_mode = 'QUATERNION'
             obj.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+        
+        # Apply transforms to generated objects (bake loc/rot/scale into mesh)
+        prev_active = context.view_layer.objects.active
+        prev_selected = [o for o in context.selected_objects]
+
+        # Deselect everything
+        for o in prev_selected:
+            o.select_set(False)
+
+        for o in generated:
+            if o.name not in context.view_layer.objects:
+                continue
+            o.select_set(True)
+            context.view_layer.objects.active = o
+            # Ensure we're in Object Mode for transform_apply
+            if context.mode != 'OBJECT':
+                bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+            o.select_set(False)
+
+        # Restore selection/active
+        for o in prev_selected:
+            if o and o.name in context.view_layer.objects:
+                o.select_set(True)
+        context.view_layer.objects.active = prev_active
 
         return {'FINISHED'}
 
