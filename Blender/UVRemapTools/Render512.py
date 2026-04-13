@@ -1,10 +1,10 @@
 bl_info = {
-    "name": "Viewport Render 4096x4096 Fit Selection",
+    "name": "Viewport Render 512x512 Fit Selection",
     "author": "ChatGPT + Sonamaker",
     "version": (1, 0),
     "blender": (4, 0, 0),
     "location": "View3D > View",
-    "description": "Creates a new camera for the current viewport, scaling selected geometry to 4096x4096 image",
+    "description": "Creates a new camera for the current viewport, scaling selected geometry to 512x512 image",
     "category": "3D View",
 }
 
@@ -43,14 +43,14 @@ def fit_camera_to_bounds(camera, bounds_min, bounds_max):
 
 def set_render_settings():
     render = bpy.context.scene.render
-    render.resolution_x = 4096
-    render.resolution_y = 4096
+    render.resolution_x = 512
+    render.resolution_y = 512
     render.resolution_percentage = 100
 
-class VIEW3D_OT_render_selection_to_4096(bpy.types.Operator):
-    """Render selected geometry to 4096x4096 image"""
-    bl_idname = "view3d.render_selection_4096"
-    bl_label = "Render Selection (4096x4096)"
+class VIEW3D_OT_render_selection_to_512(bpy.types.Operator):
+    """Render selected geometry to 512x512 image"""
+    bl_idname = "view3d.render_selection_512"
+    bl_label = "Render Selection (512x512)"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -75,9 +75,9 @@ class VIEW3D_OT_render_selection_to_4096(bpy.types.Operator):
 
 def draw_menu(self, context):
     self.layout.separator()
-    self.layout.operator(VIEW3D_OT_render_selection_to_4096.bl_idname)
+    self.layout.operator(VIEW3D_OT_render_selection_to_512.bl_idname)
 
-classes = (VIEW3D_OT_render_selection_to_4096,)
+classes = (VIEW3D_OT_render_selection_to_512,)
 
 def register():
     for cls in classes:
