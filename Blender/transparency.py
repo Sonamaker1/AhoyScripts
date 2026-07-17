@@ -45,7 +45,9 @@ class TRANSPARENCY_OT_enable_viewport(bpy.types.Operator):
 
         # Set blend mode for transparency
         mat.blend_method = 'BLEND'
-        mat.shadow_method = 'NONE'
+        obj.visible_shadow = False
+
+        #mat.shadow_method = 'NONE'
         mat.show_transparent_back = False
 
         # Set viewport display alpha
